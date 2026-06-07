@@ -2,6 +2,8 @@
 
 Phone-first workout tracker for the PLP arm specialization program.
 
+Current weekly shape: Push > Legs > Pull A > Rest > Push > Legs > Pull B > Rest.
+
 The GitHub Pages site is just the app shell. Your workout state is stored in
 Supabase behind your login, so clearing Safari data or switching browsers does
 not erase the real copy. Browser storage is only used as a cache and offline
@@ -10,6 +12,7 @@ draft.
 ## Features
 
 - 8-slot PLP cycle with rest slots.
+- Updated arm-specialization split with Push and Pull separated by Legs.
 - Per-set weight, reps, and done tracking.
 - Sticky notes per exercise.
 - Last workout display per exercise.

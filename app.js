@@ -1,51 +1,51 @@
 const STORAGE_PREFIX = "plp-gym-log-cache-v1:";
 const PROGRAM_NAME = "PLP Arm Specialization";
+const PROGRAM_TEMPLATE_VERSION = 3;
 const CONFIG = window.PLP_CONFIG || {};
 const allowSignUp = CONFIG.allowSignUp === true;
 
 const DEFAULT_PROGRAM = {
   cycle: [
+    { dayKey: "push", label: "Push", detail: "Chest + tri" },
+    { dayKey: "legs", label: "Legs", detail: "Lean lower" },
     { dayKey: "pull-a", label: "Pull A", detail: "Fresh arms" },
-    { dayKey: "legs", label: "Legs", detail: "Lean lower" },
-    { dayKey: "push", label: "Push", detail: "Chest + tri" },
     { dayKey: "rest", label: "Rest", detail: "Recover" },
-    { dayKey: "pull-b", label: "Pull B", detail: "Normal order" },
-    { dayKey: "legs", label: "Legs", detail: "Lean lower" },
     { dayKey: "push", label: "Push", detail: "Chest + tri" },
+    { dayKey: "legs", label: "Legs", detail: "Lean lower" },
+    { dayKey: "pull-b", label: "Pull B", detail: "Back priority" },
     { dayKey: "rest", label: "Rest", detail: "Recover" },
   ],
   days: {
     "pull-a": {
       title: "Pull A",
-      kicker: "Fresh-arm priority",
-      note: "Arms first while fresh. Heavy close-grip press gets the best slot.",
+      kicker: "Biceps/triceps priority",
+      note: "Arms first while fresh. Both curls lead, then heavy close-grip press before back.",
       exercises: [
         { id: "incline-seated-db-curl", name: "Incline seated DB curl", sets: 3, reps: "8-10", focus: "Fresh biceps" },
-        { id: "close-grip-smith-press", name: "Close-grip Smith press, tucked elbows", sets: 3, reps: "6-10", focus: "Fresh triceps heavy" },
+        { id: "spider-or-hammer-curl", name: "Spider or hammer curl", sets: 3, reps: "10-12", focus: "Fresh biceps" },
+        { id: "close-grip-smith-press", name: "Close-grip Smith press, tucked", sets: 3, reps: "6-10", focus: "Fresh triceps heavy" },
         { id: "lat-pulldown", name: "Lat pulldown", sets: 3, reps: "8-12", focus: "Back" },
-        { id: "smith-machine-row", name: "Smith machine row", sets: 3, reps: "8-12", focus: "Back" },
         { id: "chest-supported-db-row", name: "Chest-supported DB row", sets: 3, reps: "10-12", focus: "Back" },
         { id: "rear-delt", name: "Rear delt", sets: 2, reps: "15-20", focus: "Delt maintenance" },
       ],
     },
     "pull-b": {
       title: "Pull B",
-      kicker: "Normal order",
-      note: "Back first, then biceps. Keep the arm work clean and honest.",
+      kicker: "Back priority",
+      note: "Back gets your fresh, full effort. Biceps is one lighter secondary pump at the end.",
       exercises: [
         { id: "lat-pulldown", name: "Lat pulldown", sets: 3, reps: "8-12", focus: "Back" },
         { id: "smith-machine-row", name: "Smith machine row", sets: 3, reps: "8-12", focus: "Back" },
         { id: "chest-supported-db-row", name: "Chest-supported DB row", sets: 3, reps: "10-12", focus: "Back" },
         { id: "shrugs", name: "Shrugs", sets: 3, reps: "12-15", focus: "Traps" },
         { id: "rear-delt", name: "Rear delt", sets: 2, reps: "15-20", focus: "Delt maintenance" },
-        { id: "incline-seated-db-curl", name: "Incline seated DB curl", sets: 3, reps: "10-12", focus: "Biceps" },
-        { id: "spider-or-hammer-curl", name: "Spider or hammer curl", sets: 3, reps: "10-12", focus: "Biceps rotation" },
+        { id: "incline-seated-db-curl", name: "Incline seated DB curl", sets: 3, reps: "10-12", focus: "Light secondary pump" },
       ],
     },
     push: {
       title: "Push",
       kicker: "Chest + long-head triceps",
-      note: "Delts stay on maintenance. Triceps here is lighter stretch work.",
+      note: "Delts stay on maintenance. Triceps here is lighter long-head stretch work plus indirect pressing.",
       exercises: [
         { id: "incline-smith-press", name: "Incline Smith press", sets: 3, reps: "6-10", focus: "Chest" },
         { id: "chest-press-machine", name: "Chest press machine", sets: 3, reps: "8-12", focus: "Chest" },
@@ -57,7 +57,7 @@ const DEFAULT_PROGRAM = {
     legs: {
       title: "Legs",
       kicker: "Deprioritized and lean",
-      note: "Keep this efficient. Do the work, save recovery for the arm focus.",
+      note: "Kept lean in the middle so push and pull are never back to back.",
       exercises: [
         { id: "squat", name: "Squat", sets: 3, reps: "5-8", focus: "Compound" },
         { id: "leg-press", name: "Leg press", sets: 3, reps: "10-15", focus: "Quads" },
@@ -69,6 +69,17 @@ const DEFAULT_PROGRAM = {
     },
   },
 };
+
+const LEGACY_CYCLE_V2 = [
+  { dayKey: "pull-a", label: "Pull A", detail: "Fresh arms" },
+  { dayKey: "legs", label: "Legs", detail: "Lean lower" },
+  { dayKey: "push", label: "Push", detail: "Chest + tri" },
+  { dayKey: "rest", label: "Rest", detail: "Recover" },
+  { dayKey: "pull-b", label: "Pull B", detail: "Normal order" },
+  { dayKey: "legs", label: "Legs", detail: "Lean lower" },
+  { dayKey: "push", label: "Push", detail: "Chest + tri" },
+  { dayKey: "rest", label: "Rest", detail: "Recover" },
+];
 
 const elements = {
   setupView: byId("setupView"),
@@ -1175,9 +1186,10 @@ function hasSupabaseConfig(config) {
 
 function createDefaultState() {
   return {
-    version: 2,
+    version: 3,
     updatedAt: new Date().toISOString(),
     currentCycleIndex: 0,
+    programRevision: PROGRAM_TEMPLATE_VERSION,
     program: cloneProgram(DEFAULT_PROGRAM),
     notes: {},
     lastByExercise: {},
@@ -1190,16 +1202,23 @@ function createDefaultState() {
 function normalizeState(candidate) {
   const base = createDefaultState();
   const source = candidate && typeof candidate === "object" ? candidate : {};
+  const sourceProgramRevision = getProgramRevision(source);
+  const shouldUseUpdatedTemplate = sourceProgramRevision < PROGRAM_TEMPLATE_VERSION;
   const merged = {
     ...base,
     ...source,
+    version: Math.max(clampInteger(source.version, 1, 3, 1), 3),
+    programRevision: PROGRAM_TEMPLATE_VERSION,
     notes: isObject(source.notes) ? source.notes : {},
     lastByExercise: isObject(source.lastByExercise) ? source.lastByExercise : {},
     drafts: isObject(source.drafts) ? source.drafts : {},
     logs: Array.isArray(source.logs) ? source.logs : [],
-    program: normalizeProgram(source.program),
+    program: shouldUseUpdatedTemplate ? cloneProgram(DEFAULT_PROGRAM) : normalizeProgram(source.program),
     settings: { ...base.settings, ...(isObject(source.settings) ? source.settings : {}) },
   };
+  if (shouldUseUpdatedTemplate) {
+    merged.currentCycleIndex = remapCycleIndex(source.currentCycleIndex, source.program?.cycle || LEGACY_CYCLE_V2, merged.program.cycle);
+  }
   if (
     !Number.isInteger(merged.currentCycleIndex) ||
     merged.currentCycleIndex < 0 ||
@@ -1215,6 +1234,23 @@ function normalizeState(candidate) {
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function getProgramRevision(source) {
+  const candidate = source?.programRevision ?? source?.programTemplateVersion;
+  return Number.isInteger(candidate) ? candidate : 0;
+}
+
+function remapCycleIndex(index, fromCycle, toCycle) {
+  if (!Number.isInteger(index) || !Array.isArray(fromCycle) || !Array.isArray(toCycle)) {
+    return 0;
+  }
+  const oldSlot = fromCycle[index];
+  if (!oldSlot?.dayKey) {
+    return 0;
+  }
+  const newIndex = toCycle.findIndex((slot) => slot.dayKey === oldSlot.dayKey);
+  return newIndex >= 0 ? newIndex : 0;
 }
 
 function cloneProgram(program) {
