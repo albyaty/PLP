@@ -35,8 +35,9 @@ browser code.
 
 1. Push this folder to a GitHub repository.
 2. In the repository, open Settings > Pages.
-3. Set Source to GitHub Actions.
-4. Push to `main` or `master`; the workflow deploys the static site.
+3. Set Source to Deploy from a branch.
+4. Select the `main` branch and `/ (root)` folder.
+5. Save. GitHub deploys the static site from the checked-in files.
 
 GitHub Pages sites are publicly reachable by default. That is okay for this
 setup because the public site does not contain your workout log. Supabase Row
