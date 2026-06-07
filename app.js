@@ -3,7 +3,7 @@ const PROGRAM_NAME = "PLP Arm Specialization";
 const CONFIG = window.PLP_CONFIG || {};
 const allowSignUp = CONFIG.allowSignUp === true;
 
-const PROGRAM = {
+const DEFAULT_PROGRAM = {
   cycle: [
     { dayKey: "pull-a", label: "Pull A", detail: "Fresh arms" },
     { dayKey: "legs", label: "Legs", detail: "Lean lower" },
@@ -87,6 +87,7 @@ const elements = {
   sessionKicker: byId("sessionKicker"),
   sessionTitle: byId("sessionTitle"),
   sessionNote: byId("sessionNote"),
+  editDayButton: byId("editDayButton"),
   useLastAllButton: byId("useLastAllButton"),
   clearDraftButton: byId("clearDraftButton"),
   restView: byId("restView"),
@@ -106,11 +107,25 @@ const elements = {
   installButton: byId("installButton"),
   resetButton: byId("resetButton"),
   signOutButton: byId("signOutButton"),
+  programPanel: byId("programPanel"),
+  closeProgramButton: byId("closeProgramButton"),
+  programTitle: byId("programTitle"),
+  programExerciseCount: byId("programExerciseCount"),
+  programExerciseList: byId("programExerciseList"),
+  addExistingForm: byId("addExistingForm"),
+  existingExerciseSelect: byId("existingExerciseSelect"),
+  customExerciseForm: byId("customExerciseForm"),
+  customExerciseNameInput: byId("customExerciseNameInput"),
+  customExerciseSetsInput: byId("customExerciseSetsInput"),
+  customExerciseRepsInput: byId("customExerciseRepsInput"),
+  customExerciseFocusInput: byId("customExerciseFocusInput"),
+  resetDayButton: byId("resetDayButton"),
   toast: byId("toast"),
 };
 
 const configured = hasSupabaseConfig(CONFIG);
 const previewMode = new URLSearchParams(window.location.search).has("preview");
+const localPreviewHost = ["localhost", "127.0.0.1", ""].includes(window.location.hostname);
 
 let state = createDefaultState();
 let currentUser = null;
@@ -119,6 +134,7 @@ let saveTimer = null;
 let statusTimer = null;
 let toastTimer = null;
 let installPrompt = null;
+let editingExerciseIndex = null;
 
 const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 const fullDate = new Intl.DateTimeFormat(undefined, {
@@ -143,7 +159,7 @@ async function boot() {
     return;
   }
 
-  if (previewMode && !configured) {
+  if (previewMode && localPreviewHost) {
     currentUser = { id: "preview", email: "preview@local" };
     state = createDemoState();
     showMode("app");
@@ -213,6 +229,7 @@ function wireEvents() {
   elements.signUpButton.addEventListener("click", signUp);
   elements.prevDayButton.addEventListener("click", () => moveCycle(-1));
   elements.nextDayButton.addEventListener("click", () => moveCycle(1));
+  elements.editDayButton.addEventListener("click", openProgramEditor);
   elements.useLastAllButton.addEventListener("click", loadAllLastWeights);
   elements.clearDraftButton.addEventListener("click", clearCurrentDraft);
   elements.finishWorkoutButton.addEventListener("click", finishWorkout);
@@ -223,6 +240,15 @@ function wireEvents() {
       closeSettings();
     }
   });
+  elements.closeProgramButton.addEventListener("click", closeProgramEditor);
+  elements.programPanel.addEventListener("click", (event) => {
+    if (event.target.matches("[data-close-program]")) {
+      closeProgramEditor();
+    }
+  });
+  elements.addExistingForm.addEventListener("submit", addExistingExerciseToDay);
+  elements.customExerciseForm.addEventListener("submit", addCustomExerciseToDay);
+  elements.resetDayButton.addEventListener("click", resetCurrentDayProgram);
   elements.unitSelect.addEventListener("change", () => {
     state.settings.unit = elements.unitSelect.value;
     touchAndSave("Unit changed");
@@ -364,10 +390,10 @@ function showMode(mode) {
 
 function render() {
   const active = getActiveCycleItem();
-  const day = PROGRAM.days[active.dayKey];
+  const day = getProgram().days[active.dayKey];
 
   elements.cycleLabel.textContent = PROGRAM_NAME;
-  elements.dayTitle.textContent = active.dayKey === "rest" ? "Rest" : day.title;
+  elements.dayTitle.textContent = active.dayKey === "rest" ? "Rest" : day?.title || active.label;
   elements.unitSelect.value = state.settings.unit;
   elements.accountLabel.textContent = currentUser?.email || "Signed in";
 
@@ -380,6 +406,7 @@ function render() {
     elements.sessionNote.textContent = "Recovery slot between the training days.";
     elements.restView.hidden = false;
     elements.exerciseList.hidden = true;
+    elements.editDayButton.hidden = true;
     elements.useLastAllButton.hidden = true;
     elements.clearDraftButton.hidden = true;
     elements.finishWorkoutButton.textContent = "Next gym day";
@@ -392,17 +419,22 @@ function render() {
   elements.sessionNote.textContent = day.note;
   elements.restView.hidden = true;
   elements.exerciseList.hidden = false;
+  elements.editDayButton.hidden = false;
   elements.useLastAllButton.hidden = false;
   elements.clearDraftButton.hidden = false;
   elements.finishWorkoutButton.textContent = "Finish workout";
 
   renderExercises(active.dayKey, day);
   updateCompletionCount();
+
+  if (!elements.programPanel.hidden) {
+    renderProgramEditor();
+  }
 }
 
 function renderCycleRail() {
   const fragment = document.createDocumentFragment();
-  PROGRAM.cycle.forEach((slot, index) => {
+  getProgram().cycle.forEach((slot, index) => {
     const button = document.createElement("button");
     button.className = "cycle-chip";
     button.type = "button";
@@ -604,7 +636,7 @@ function updateCompletionCount() {
     elements.completionCount.textContent = "Rest slot";
     return;
   }
-  const day = PROGRAM.days[active.dayKey];
+  const day = getProgram().days[active.dayKey];
   const planned = day.exercises.reduce((total, exercise) => total + exercise.sets, 0);
   const logged = day.exercises.reduce((total, exercise) => {
     const sets = ensureDraftSets(active.dayKey, exercise);
@@ -638,7 +670,7 @@ function loadAllLastWeights() {
   if (active.dayKey === "rest") {
     return;
   }
-  const day = PROGRAM.days[active.dayKey];
+  const day = getProgram().days[active.dayKey];
   let loaded = 0;
   day.exercises.forEach((exercise) => {
     if (loadLastWeightsForExercise(active.dayKey, exercise, true)) {
@@ -680,7 +712,7 @@ function finishWorkout() {
     return;
   }
 
-  const day = PROGRAM.days[active.dayKey];
+  const day = getProgram().days[active.dayKey];
   const entries = day.exercises
     .map((exercise) => {
       const sets = ensureDraftSets(active.dayKey, exercise)
@@ -732,7 +764,8 @@ function finishWorkout() {
 
 function advanceToNextTrainingDay() {
   let next = wrapIndex(state.currentCycleIndex + 1);
-  while (PROGRAM.cycle[next].dayKey === "rest") {
+  const cycle = getProgram().cycle;
+  while (cycle[next].dayKey === "rest") {
     next = wrapIndex(next + 1);
   }
   state.currentCycleIndex = next;
@@ -747,7 +780,8 @@ function getDraft(dayKey) {
 
 function ensureDraftSets(dayKey, exercise) {
   const draft = getDraft(dayKey);
-  let sets = draft.exercises[exercise.id];
+  const draftKey = getExerciseDraftKey(exercise);
+  let sets = draft.exercises[draftKey];
   if (!Array.isArray(sets)) {
     sets = [];
   }
@@ -755,8 +789,12 @@ function ensureDraftSets(dayKey, exercise) {
   while (sets.length < exercise.sets) {
     sets.push(createEmptySet());
   }
-  draft.exercises[exercise.id] = sets;
+  draft.exercises[draftKey] = sets;
   return sets;
+}
+
+function getExerciseDraftKey(exercise) {
+  return exercise.slotId || exercise.id;
 }
 
 function createEmptySet() {
@@ -796,11 +834,289 @@ function getTopRepTarget(repRange) {
 }
 
 function getActiveCycleItem() {
-  return PROGRAM.cycle[state.currentCycleIndex] || PROGRAM.cycle[0];
+  const cycle = getProgram().cycle;
+  return cycle[state.currentCycleIndex] || cycle[0];
 }
 
 function wrapIndex(index) {
-  return (index + PROGRAM.cycle.length) % PROGRAM.cycle.length;
+  const length = getProgram().cycle.length;
+  return (index + length) % length;
+}
+
+function getProgram() {
+  if (!state.program) {
+    state.program = cloneProgram(DEFAULT_PROGRAM);
+  }
+  return state.program;
+}
+
+function openProgramEditor() {
+  const active = getActiveCycleItem();
+  if (active.dayKey === "rest") {
+    return;
+  }
+  editingExerciseIndex = null;
+  renderProgramEditor();
+  elements.programPanel.hidden = false;
+}
+
+function closeProgramEditor() {
+  elements.programPanel.hidden = true;
+  editingExerciseIndex = null;
+}
+
+function renderProgramEditor() {
+  const active = getActiveCycleItem();
+  const day = getProgram().days[active.dayKey];
+  if (!day) {
+    closeProgramEditor();
+    return;
+  }
+
+  elements.programTitle.textContent = `Edit ${day.title}`;
+  elements.programExerciseCount.textContent = `${day.exercises.length} exercise${day.exercises.length === 1 ? "" : "s"}`;
+  renderProgramExerciseList(active.dayKey, day);
+  renderExistingExerciseOptions();
+}
+
+function renderProgramExerciseList(dayKey, day) {
+  if (!day.exercises.length) {
+    elements.programExerciseList.replaceChildren(createTextElement("p", "No exercises on this day.", "empty-state"));
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  day.exercises.forEach((exercise, index) => {
+    fragment.append(renderProgramExerciseRow(dayKey, exercise, index, day.exercises.length));
+  });
+  elements.programExerciseList.replaceChildren(fragment);
+}
+
+function renderProgramExerciseRow(dayKey, exercise, index, total) {
+  const item = createElement("div", "program-exercise-item");
+  const summary = createElement("div", "program-exercise-summary");
+  const text = createElement("div");
+  text.append(createTextElement("strong", exercise.name));
+  text.append(createTextElement("span", `${exercise.sets} x ${exercise.reps} / ${exercise.focus}`));
+
+  const controls = createElement("div", "program-exercise-controls");
+  const upButton = createTextElement("button", "Up", "mini-button");
+  upButton.type = "button";
+  upButton.disabled = index === 0;
+  upButton.addEventListener("click", () => moveProgramExercise(dayKey, index, -1));
+
+  const downButton = createTextElement("button", "Down", "mini-button");
+  downButton.type = "button";
+  downButton.disabled = index === total - 1;
+  downButton.addEventListener("click", () => moveProgramExercise(dayKey, index, 1));
+
+  const editButton = createTextElement("button", editingExerciseIndex === index ? "Cancel" : "Edit", "mini-button");
+  editButton.type = "button";
+  editButton.addEventListener("click", () => {
+    editingExerciseIndex = editingExerciseIndex === index ? null : index;
+    renderProgramEditor();
+  });
+
+  const removeButton = createTextElement("button", "Remove", "mini-button");
+  removeButton.type = "button";
+  removeButton.addEventListener("click", () => removeProgramExercise(dayKey, index));
+
+  controls.append(upButton, downButton, editButton, removeButton);
+  summary.append(text, controls);
+  item.append(summary);
+
+  if (editingExerciseIndex === index) {
+    item.append(renderExerciseEditForm(dayKey, exercise, index));
+  }
+
+  return item;
+}
+
+function renderExerciseEditForm(dayKey, exercise, index) {
+  const form = createElement("form", "inline-edit-form");
+  const grid = createElement("div", "editor-grid");
+
+  const nameField = createEditorInput("Name", "text", exercise.name);
+  nameField.label.classList.add("wide-field");
+  const setsField = createEditorInput("Sets", "number", String(exercise.sets));
+  setsField.input.min = "1";
+  setsField.input.max = "10";
+  setsField.input.step = "1";
+  const repsField = createEditorInput("Reps", "text", exercise.reps);
+  const focusField = createEditorInput("Focus", "text", exercise.focus);
+  focusField.label.classList.add("wide-field");
+
+  grid.append(nameField.label, setsField.label, repsField.label, focusField.label);
+
+  const actions = createElement("div", "button-row");
+  const saveButton = createTextElement("button", "Save", "primary-button");
+  saveButton.type = "submit";
+  const cancelButton = createTextElement("button", "Cancel", "ghost-button");
+  cancelButton.type = "button";
+  cancelButton.addEventListener("click", () => {
+    editingExerciseIndex = null;
+    renderProgramEditor();
+  });
+  actions.append(saveButton, cancelButton);
+
+  form.append(grid, actions);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    updateProgramExercise(dayKey, index, {
+      ...exercise,
+      name: nameField.input.value,
+      sets: setsField.input.value,
+      reps: repsField.input.value,
+      focus: focusField.input.value,
+    });
+  });
+
+  return form;
+}
+
+function createEditorInput(labelText, type, value) {
+  const label = createElement("label", "settings-field");
+  label.append(createTextElement("span", labelText));
+  const input = document.createElement("input");
+  input.type = type;
+  input.autocomplete = "off";
+  input.value = value || "";
+  input.required = labelText !== "Focus";
+  label.append(input);
+  return { label, input };
+}
+
+function moveProgramExercise(dayKey, index, direction) {
+  const exercises = getProgram().days[dayKey].exercises;
+  const target = index + direction;
+  if (target < 0 || target >= exercises.length) {
+    return;
+  }
+  const [exercise] = exercises.splice(index, 1);
+  exercises.splice(target, 0, exercise);
+  editingExerciseIndex = null;
+  touchAndSave("Exercise moved");
+  render();
+}
+
+function removeProgramExercise(dayKey, index) {
+  const day = getProgram().days[dayKey];
+  const exercise = day.exercises[index];
+  if (!exercise) {
+    return;
+  }
+  if (!window.confirm(`Remove ${exercise.name} from ${day.title}? Notes and history stay saved.`)) {
+    return;
+  }
+  day.exercises.splice(index, 1);
+  editingExerciseIndex = null;
+  touchAndSave("Exercise removed");
+  render();
+}
+
+function updateProgramExercise(dayKey, index, patch) {
+  const day = getProgram().days[dayKey];
+  const current = day.exercises[index];
+  const updated = normalizeExercise({ ...current, ...patch }, current);
+  if (!updated) {
+    showToast("Exercise needs a name.");
+    return;
+  }
+  day.exercises[index] = updated;
+  editingExerciseIndex = null;
+  touchAndSave("Exercise updated");
+  render();
+}
+
+function addExistingExerciseToDay(event) {
+  event.preventDefault();
+  const selectedId = elements.existingExerciseSelect.value;
+  const exercise = getExerciseCatalog().find((item) => item.id === selectedId);
+  if (!exercise) {
+    return;
+  }
+  const clone = normalizeExercise({
+    ...exercise,
+    slotId: createSlotId(exercise.id),
+  });
+  getCurrentProgramDay().exercises.push(clone);
+  touchAndSave("Exercise added");
+  render();
+  showToast(`${clone.name} added.`);
+}
+
+function addCustomExerciseToDay(event) {
+  event.preventDefault();
+  const name = elements.customExerciseNameInput.value.trim();
+  const exercise = normalizeExercise({
+    id: createUniqueExerciseId(name),
+    slotId: createSlotId(slugify(name) || "custom"),
+    name,
+    sets: elements.customExerciseSetsInput.value,
+    reps: elements.customExerciseRepsInput.value,
+    focus: elements.customExerciseFocusInput.value || "Custom",
+  });
+  if (!exercise) {
+    showToast("Exercise needs a name.");
+    return;
+  }
+
+  getCurrentProgramDay().exercises.push(exercise);
+  elements.customExerciseForm.reset();
+  elements.customExerciseSetsInput.value = "3";
+  elements.customExerciseRepsInput.value = "8-12";
+  elements.customExerciseFocusInput.value = "Custom";
+  touchAndSave("Exercise added");
+  render();
+  showToast(`${exercise.name} added.`);
+}
+
+function resetCurrentDayProgram() {
+  const active = getActiveCycleItem();
+  const day = getProgram().days[active.dayKey];
+  const fallback = DEFAULT_PROGRAM.days[active.dayKey];
+  if (!day || !fallback) {
+    return;
+  }
+  if (!window.confirm(`Reset ${day.title} exercise order to the original PLP day? Notes, history, and last weights stay saved.`)) {
+    return;
+  }
+  getProgram().days[active.dayKey] = cloneProgram({ days: { [active.dayKey]: fallback } }).days[active.dayKey];
+  editingExerciseIndex = null;
+  touchAndSave("Day reset");
+  render();
+}
+
+function getCurrentProgramDay() {
+  const active = getActiveCycleItem();
+  return getProgram().days[active.dayKey];
+}
+
+function renderExistingExerciseOptions() {
+  const catalog = getExerciseCatalog();
+  const fragment = document.createDocumentFragment();
+  catalog.forEach((exercise) => {
+    const option = document.createElement("option");
+    option.value = exercise.id;
+    option.textContent = `${exercise.name} (${exercise.sets} x ${exercise.reps})`;
+    fragment.append(option);
+  });
+  elements.existingExerciseSelect.replaceChildren(fragment);
+}
+
+function getExerciseCatalog() {
+  const byId = new Map();
+  [DEFAULT_PROGRAM, getProgram()].forEach((program) => {
+    Object.values(program.days || {}).forEach((day) => {
+      (day.exercises || []).forEach((exercise) => {
+        const normalized = normalizeExercise(exercise);
+        if (normalized && !byId.has(normalized.id)) {
+          byId.set(normalized.id, normalized);
+        }
+      });
+    });
+  });
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function formatDate(date) {
@@ -859,9 +1175,10 @@ function hasSupabaseConfig(config) {
 
 function createDefaultState() {
   return {
-    version: 1,
+    version: 2,
     updatedAt: new Date().toISOString(),
     currentCycleIndex: 0,
+    program: cloneProgram(DEFAULT_PROGRAM),
     notes: {},
     lastByExercise: {},
     logs: [],
@@ -880,9 +1197,14 @@ function normalizeState(candidate) {
     lastByExercise: isObject(source.lastByExercise) ? source.lastByExercise : {},
     drafts: isObject(source.drafts) ? source.drafts : {},
     logs: Array.isArray(source.logs) ? source.logs : [],
+    program: normalizeProgram(source.program),
     settings: { ...base.settings, ...(isObject(source.settings) ? source.settings : {}) },
   };
-  if (!Number.isInteger(merged.currentCycleIndex) || merged.currentCycleIndex < 0 || merged.currentCycleIndex >= PROGRAM.cycle.length) {
+  if (
+    !Number.isInteger(merged.currentCycleIndex) ||
+    merged.currentCycleIndex < 0 ||
+    merged.currentCycleIndex >= merged.program.cycle.length
+  ) {
     merged.currentCycleIndex = 0;
   }
   if (!["lb", "kg"].includes(merged.settings.unit)) {
@@ -893,6 +1215,129 @@ function normalizeState(candidate) {
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function cloneProgram(program) {
+  return JSON.parse(JSON.stringify(program));
+}
+
+function normalizeProgram(candidate) {
+  const fallback = cloneProgram(DEFAULT_PROGRAM);
+  if (!isObject(candidate)) {
+    return fallback;
+  }
+
+  const sourceDays = isObject(candidate.days) ? candidate.days : {};
+  const days = {};
+  Object.entries(fallback.days).forEach(([dayKey, fallbackDay]) => {
+    days[dayKey] = normalizeProgramDay(sourceDays[dayKey], fallbackDay);
+  });
+
+  Object.entries(sourceDays).forEach(([dayKey, day]) => {
+    if (!days[dayKey] && dayKey !== "rest") {
+      days[dayKey] = normalizeProgramDay(day, {
+        title: cleanText(day?.title) || dayKey,
+        kicker: cleanText(day?.kicker) || "Custom",
+        note: cleanText(day?.note) || "",
+        exercises: [],
+      });
+    }
+  });
+
+  const cycle = Array.isArray(candidate.cycle) && candidate.cycle.length
+    ? candidate.cycle
+        .map((slot) => ({
+          dayKey: cleanText(slot?.dayKey) || "rest",
+          label: cleanText(slot?.label) || "Rest",
+          detail: cleanText(slot?.detail) || "",
+        }))
+        .filter((slot) => slot.dayKey === "rest" || days[slot.dayKey])
+    : fallback.cycle;
+
+  return {
+    cycle: cycle.length ? cycle : fallback.cycle,
+    days,
+  };
+}
+
+function normalizeProgramDay(candidate, fallback) {
+  const source = isObject(candidate) ? candidate : {};
+  const fallbackExercises = Array.isArray(fallback.exercises) ? fallback.exercises : [];
+  const exercisesSource = Array.isArray(source.exercises) ? source.exercises : fallbackExercises;
+  const exercises = exercisesSource.map((exercise) => normalizeExercise(exercise)).filter(Boolean);
+
+  return {
+    title: cleanText(source.title) || fallback.title,
+    kicker: cleanText(source.kicker) || fallback.kicker,
+    note: cleanText(source.note) || fallback.note || "",
+    exercises,
+  };
+}
+
+function normalizeExercise(candidate, fallback = {}) {
+  const source = isObject(candidate) ? candidate : {};
+  const name = cleanText(source.name) || cleanText(fallback.name);
+  if (!name) {
+    return null;
+  }
+
+  const id = cleanId(source.id) || cleanId(fallback.id) || slugify(name);
+  const slotId = cleanId(source.slotId) || cleanId(fallback.slotId);
+  const sets = clampInteger(source.sets ?? fallback.sets, 1, 10, 3);
+
+  return {
+    id,
+    ...(slotId ? { slotId } : {}),
+    name,
+    sets,
+    reps: cleanText(source.reps) || cleanText(fallback.reps) || "8-12",
+    focus: cleanText(source.focus) || cleanText(fallback.focus) || "Custom",
+  };
+}
+
+function cleanText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function cleanId(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function clampInteger(value, min, max, fallback) {
+  const number = Number.parseInt(value, 10);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, number));
+}
+
+function slugify(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function createUniqueExerciseId(name) {
+  const base = slugify(name) || "custom-exercise";
+  const used = new Set([
+    ...getExerciseCatalog().map((exercise) => exercise.id),
+    ...Object.keys(state.notes || {}),
+    ...Object.keys(state.lastByExercise || {}),
+  ]);
+  if (!used.has(base)) {
+    return base;
+  }
+  let index = 2;
+  while (used.has(`${base}-${index}`)) {
+    index += 1;
+  }
+  return `${base}-${index}`;
+}
+
+function createSlotId(id) {
+  const suffix = crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  return `${id}__${suffix}`;
 }
 
 function touchAndSave(status) {

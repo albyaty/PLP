@@ -163,6 +163,7 @@ code {
 
 .auth-form input,
 .settings-field select,
+.settings-field input,
 .set-input,
 .note-field textarea {
   width: 100%;
@@ -640,7 +641,8 @@ main {
   align-items: flex-start;
 }
 
-.settings-field select {
+.settings-field select,
+.settings-field input {
   min-height: 46px;
   padding: 0 11px;
 }
@@ -657,6 +659,77 @@ main {
 .danger-zone {
   display: grid;
   gap: 10px;
+}
+
+.program-sheet {
+  gap: 16px;
+}
+
+.program-exercise-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.program-exercise-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 253, 247, 0.78);
+  overflow: hidden;
+}
+
+.program-exercise-summary {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.program-exercise-summary div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.program-exercise-summary strong {
+  line-height: 1.22;
+}
+
+.program-exercise-summary span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.program-exercise-controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.program-exercise-controls .mini-button {
+  padding-right: 6px;
+  padding-left: 6px;
+}
+
+.editor-form {
+  display: grid;
+  gap: 12px;
+}
+
+.editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(92px, 0.38fr);
+  gap: 10px;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.inline-edit-form {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 12px;
+  background: rgba(246, 241, 231, 0.48);
 }
 
 .toast {
@@ -696,6 +769,15 @@ main {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
   }
+
+  .program-exercise-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .program-exercise-controls {
+    grid-template-columns: repeat(4, auto);
+  }
 }
 
 @media (max-width: 380px) {
@@ -716,6 +798,10 @@ main {
   .file-button {
     padding-right: 10px;
     padding-left: 10px;
+  }
+
+  .program-exercise-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

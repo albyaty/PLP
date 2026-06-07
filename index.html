@@ -86,6 +86,7 @@
             <p id="sessionNote">Fresh-arm priority day.</p>
           </div>
           <div class="session-actions">
+            <button id="editDayButton" class="ghost-button" type="button" aria-controls="programPanel">Edit day</button>
             <button id="useLastAllButton" class="secondary-button" type="button">Load weights</button>
             <button id="clearDraftButton" class="ghost-button" type="button">Clear</button>
           </div>
@@ -174,6 +175,64 @@
           <h3>Danger zone</h3>
           <button id="resetButton" class="danger-button" type="button">Reset my workout data</button>
           <button id="signOutButton" class="ghost-button" type="button">Sign out</button>
+        </div>
+      </div>
+    </aside>
+
+    <aside id="programPanel" class="settings-panel editor-panel" hidden>
+      <div class="settings-scrim" data-close-program></div>
+      <div class="settings-sheet program-sheet" role="dialog" aria-modal="true" aria-labelledby="programTitle">
+        <header>
+          <div>
+            <p class="eyebrow">Program editor</p>
+            <h2 id="programTitle">Edit day</h2>
+          </div>
+          <button id="closeProgramButton" class="ghost-button" type="button">Close</button>
+        </header>
+
+        <div class="settings-block">
+          <div class="section-heading">
+            <h3>Order</h3>
+            <span id="programExerciseCount">0 exercises</span>
+          </div>
+          <div id="programExerciseList" class="program-exercise-list"></div>
+        </div>
+
+        <form id="addExistingForm" class="settings-block editor-form">
+          <h3>Add from program</h3>
+          <label class="settings-field">
+            Exercise
+            <select id="existingExerciseSelect"></select>
+          </label>
+          <button class="secondary-button" type="submit">Add selected</button>
+        </form>
+
+        <form id="customExerciseForm" class="settings-block editor-form">
+          <h3>New exercise</h3>
+          <div class="editor-grid">
+            <label class="settings-field wide-field">
+              Name
+              <input id="customExerciseNameInput" type="text" autocomplete="off" required>
+            </label>
+            <label class="settings-field">
+              Sets
+              <input id="customExerciseSetsInput" type="number" min="1" max="10" step="1" value="3" required>
+            </label>
+            <label class="settings-field">
+              Reps
+              <input id="customExerciseRepsInput" type="text" autocomplete="off" value="8-12" required>
+            </label>
+            <label class="settings-field wide-field">
+              Focus
+              <input id="customExerciseFocusInput" type="text" autocomplete="off" value="Custom">
+            </label>
+          </div>
+          <button class="primary-button" type="submit">Add exercise</button>
+        </form>
+
+        <div class="settings-block danger-zone">
+          <h3>Day reset</h3>
+          <button id="resetDayButton" class="danger-button" type="button">Reset this day</button>
         </div>
       </div>
     </aside>

@@ -13,6 +13,7 @@ draft.
 - Per-set weight, reps, and done tracking.
 - Sticky notes per exercise.
 - Last workout display per exercise.
+- Editable day plans: reorder exercises, add an existing exercise, or create a new one.
 - Load last weights without copying old reps.
 - "Add load next time" cue when all sets hit the top of the rep range.
 - Export/import JSON backup.
