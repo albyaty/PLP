@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#151513">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="PLP Log">
+    <title>PLP Gym Log</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="apple-touch-icon" href="./icon.svg">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="./config.js"></script>
+  </head>
+  <body>
+    <section id="setupView" class="center-view" hidden>
+      <div class="identity-lockup">
+        <span class="app-mark">PLP</span>
+        <p class="eyebrow">Cloud sync not configured</p>
+        <h1>Connect Supabase once, then your log follows you.</h1>
+        <p>
+          The app shell can live on GitHub Pages. Your workouts live in your
+          private Supabase row after you sign in.
+        </p>
+      </div>
+      <div class="setup-panel">
+        <h2>Setup checklist</h2>
+        <ol>
+          <li>Create a Supabase project.</li>
+          <li>Run the SQL in <code>supabase/schema.sql</code>.</li>
+          <li>Paste your project URL and anon or publishable key into <code>config.js</code>.</li>
+        </ol>
+        <p class="fine-print">
+          Do not paste a Supabase service role key into this app.
+        </p>
+      </div>
+    </section>
+
+    <section id="authView" class="center-view" hidden>
+      <div class="identity-lockup">
+        <span class="app-mark">PLP</span>
+        <p class="eyebrow">Private gym log</p>
+        <h1>Sign in before you train.</h1>
+        <p>Use the same account on Safari, Chrome, or a new phone.</p>
+      </div>
+
+      <form id="authForm" class="auth-form">
+        <label>
+          Email
+          <input id="emailInput" type="email" autocomplete="email" required>
+        </label>
+        <label>
+          Password
+          <input id="passwordInput" type="password" autocomplete="current-password" minlength="6" required>
+        </label>
+        <div class="auth-actions">
+          <button id="signInButton" class="primary-button" type="submit">Sign in</button>
+          <button id="signUpButton" class="secondary-button" type="button">Create account</button>
+        </div>
+      </form>
+    </section>
+
+    <div id="appShell" class="app-shell" hidden>
+      <header class="topbar">
+        <div>
+          <p id="cycleLabel" class="eyebrow">PLP Arm Specialization</p>
+          <h1 id="dayTitle">PLP Gym Log</h1>
+        </div>
+        <button id="settingsButton" class="ghost-button" type="button" aria-controls="settingsPanel">
+          Backup
+        </button>
+      </header>
+
+      <main>
+        <section class="cycle-rail" aria-label="Workout cycle">
+          <button id="prevDayButton" class="rail-button" type="button">Prev</button>
+          <div id="cycleScroller" class="cycle-scroller"></div>
+          <button id="nextDayButton" class="rail-button" type="button">Next</button>
+        </section>
+
+        <section class="session-band">
+          <div>
+            <p id="sessionKicker" class="eyebrow">Next gym day</p>
+            <h2 id="sessionTitle">Pull A</h2>
+            <p id="sessionNote">Fresh-arm priority day.</p>
+          </div>
+          <div class="session-actions">
+            <button id="useLastAllButton" class="secondary-button" type="button">Load weights</button>
+            <button id="clearDraftButton" class="ghost-button" type="button">Clear</button>
+          </div>
+        </section>
+
+        <section class="rules-strip" aria-label="Program rules">
+          <div>
+            <strong>Progression</strong>
+            <span>Top of range on all sets, then add load and reset.</span>
+          </div>
+          <div>
+            <strong>Effort</strong>
+            <span>Isolations 1-2 RIR. Compounds 2-3 RIR.</span>
+          </div>
+        </section>
+
+        <section id="restView" class="rest-view" hidden>
+          <h2>Rest slot</h2>
+          <p>This slot is in the program rhythm. Use Next when you are ready for the next gym day.</p>
+        </section>
+
+        <section id="exerciseList" class="exercise-list" aria-label="Exercises"></section>
+
+        <section class="history-section">
+          <div class="section-heading">
+            <h2>Recent sessions</h2>
+            <span id="syncStatus">Not synced</span>
+          </div>
+          <div id="recentList" class="recent-list"></div>
+        </section>
+      </main>
+
+      <footer class="finish-bar">
+        <div>
+          <strong id="completionCount">0/0 sets logged</strong>
+          <span id="draftStatus">Synced</span>
+        </div>
+        <button id="finishWorkoutButton" class="primary-button" type="button">Finish workout</button>
+      </footer>
+    </div>
+
+    <aside id="settingsPanel" class="settings-panel" hidden>
+      <div class="settings-scrim" data-close-settings></div>
+      <div class="settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <header>
+          <div>
+            <p class="eyebrow">Settings</p>
+            <h2 id="settingsTitle">Backup and account</h2>
+          </div>
+          <button id="closeSettingsButton" class="ghost-button" type="button">Close</button>
+        </header>
+
+        <label class="settings-field">
+          Units
+          <select id="unitSelect">
+            <option value="lb">lb</option>
+            <option value="kg">kg</option>
+          </select>
+        </label>
+
+        <div class="settings-block">
+          <h3>Cloud</h3>
+          <p id="accountLabel">Signed in</p>
+          <button id="syncNowButton" class="secondary-button" type="button">Sync now</button>
+        </div>
+
+        <div class="settings-block">
+          <h3>Backup file</h3>
+          <p>Export a JSON copy before big changes. Import replaces the cloud state after you confirm.</p>
+          <div class="button-row">
+            <button id="exportButton" class="secondary-button" type="button">Export</button>
+            <label class="file-button">
+              Import
+              <input id="importInput" type="file" accept="application/json" hidden>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-block">
+          <h3>iPhone</h3>
+          <p>Use Share, then Add to Home Screen for an app-like launcher.</p>
+          <button id="installButton" class="secondary-button" type="button" hidden>Install app</button>
+        </div>
+
+        <div class="settings-block danger-zone">
+          <h3>Danger zone</h3>
+          <button id="resetButton" class="danger-button" type="button">Reset my workout data</button>
+          <button id="signOutButton" class="ghost-button" type="button">Sign out</button>
+        </div>
+      </div>
+    </aside>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

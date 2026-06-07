@@ -1,0 +1,18 @@
+{
+  "name": "PLP Gym Log",
+  "short_name": "PLP Log",
+  "description": "Private mobile workout log for the PLP arm specialization program.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f1e7",
+  "theme_color": "#151513",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
