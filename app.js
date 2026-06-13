@@ -1,6 +1,6 @@
 const STORAGE_PREFIX = "plp-gym-log-cache-v1:";
 const PROGRAM_NAME = "PLP Arm Specialization";
-const PROGRAM_TEMPLATE_VERSION = 3;
+const PROGRAM_TEMPLATE_VERSION = 4;
 const CONFIG = window.PLP_CONFIG || {};
 const allowSignUp = CONFIG.allowSignUp === true;
 
@@ -19,13 +19,13 @@ const DEFAULT_PROGRAM = {
     "pull-a": {
       title: "Pull A",
       kicker: "Biceps/triceps priority",
-      note: "Arms first while fresh. Both curls lead, then heavy close-grip press before back.",
+      note: "Arms first fresh: 7 biceps sets plus heavy close-grip press. Use straps on back work.",
       exercises: [
-        { id: "incline-seated-db-curl", name: "Incline seated DB curl", sets: 3, reps: "8-10", focus: "Fresh biceps" },
-        { id: "spider-or-hammer-curl", name: "Spider or hammer curl", sets: 3, reps: "10-12", focus: "Fresh biceps" },
+        { id: "incline-seated-db-curl", name: "Incline seated DB curl", sets: 4, reps: "8-10", focus: "Fresh biceps / lengthened bias" },
+        { id: "hammer-curl", name: "Hammer curl", sets: 3, reps: "10-12", focus: "Brachialis / brachioradialis" },
         { id: "close-grip-smith-press", name: "Close-grip Smith press, tucked", sets: 3, reps: "6-10", focus: "Fresh triceps heavy" },
-        { id: "lat-pulldown", name: "Lat pulldown", sets: 3, reps: "8-12", focus: "Back" },
-        { id: "chest-supported-db-row", name: "Chest-supported DB row", sets: 3, reps: "10-12", focus: "Back" },
+        { id: "lat-pulldown", name: "Lat pulldown", sets: 3, reps: "8-12", focus: "Back / use straps" },
+        { id: "chest-supported-db-row", name: "Chest-supported DB row", sets: 3, reps: "10-12", focus: "Back / use straps" },
         { id: "rear-delt", name: "Rear delt", sets: 2, reps: "15-20", focus: "Delt maintenance" },
       ],
     },
@@ -39,32 +39,34 @@ const DEFAULT_PROGRAM = {
         { id: "chest-supported-db-row", name: "Chest-supported DB row", sets: 3, reps: "10-12", focus: "Back" },
         { id: "shrugs", name: "Shrugs", sets: 3, reps: "12-15", focus: "Traps" },
         { id: "rear-delt", name: "Rear delt", sets: 2, reps: "15-20", focus: "Delt maintenance" },
-        { id: "incline-seated-db-curl", name: "Incline seated DB curl", sets: 3, reps: "10-12", focus: "Light secondary pump" },
+        { id: "spider-curl", name: "Spider curl", sets: 3, reps: "10-12", focus: "Shortened-bias biceps pump" },
       ],
     },
     push: {
       title: "Push",
       kicker: "Chest + long-head triceps",
-      note: "Delts stay on maintenance. Triceps here is lighter long-head stretch work plus indirect pressing.",
+      note: "Chest, priority long-head triceps, delt maintenance, then a light fresh biceps top-up.",
       exercises: [
         { id: "incline-smith-press", name: "Incline Smith press", sets: 3, reps: "6-10", focus: "Chest" },
         { id: "chest-press-machine", name: "Chest press machine", sets: 3, reps: "8-12", focus: "Chest" },
         { id: "pec-dec", name: "Pec dec", sets: 3, reps: "10-15", focus: "Chest" },
-        { id: "lat-raise", name: "Lat raise", sets: 2, reps: "12-20", focus: "Delt maintenance" },
         { id: "overhead-db-extension", name: "Overhead DB extension", sets: 3, reps: "10-15", focus: "Long-head triceps" },
+        { id: "lat-raise", name: "Lat raise", sets: 2, reps: "12-20", focus: "Delt maintenance" },
+        { id: "db-curl", name: "DB curl", sets: 2, reps: "10-15", focus: "Light fresh biceps dose" },
       ],
     },
     legs: {
       title: "Legs",
-      kicker: "Deprioritized and lean",
-      note: "Kept lean in the middle so push and pull are never back to back.",
+      kicker: "Abs first, lean lower",
+      note: "Abs get the fresh slot. Keep crunches shy of failure and rest before squatting.",
       exercises: [
+        { id: "reverse-crunch", name: "Reverse crunch", sets: 3, reps: "12-15", focus: "Abs priority" },
+        { id: "weighted-crunch", name: "Weighted crunch", sets: 3, reps: "12-15", focus: "Abs" },
         { id: "squat", name: "Squat", sets: 3, reps: "5-8", focus: "Compound" },
         { id: "leg-press", name: "Leg press", sets: 3, reps: "10-15", focus: "Quads" },
         { id: "rdl", name: "RDL", sets: 3, reps: "8-12", focus: "Hinge" },
-        { id: "calf-raise-leg-curl", name: "Calf raise / leg curl", sets: 3, reps: "10-15", focus: "Optional" },
-        { id: "reverse-crunch", name: "Reverse crunch", sets: 3, reps: "12-15", focus: "Abs" },
-        { id: "weighted-crunch", name: "Weighted crunch", sets: 3, reps: "12-15", focus: "Abs" },
+        { id: "leg-curl", name: "Leg curl", sets: 3, setsLabel: "2-3", reps: "10-15", focus: "Recommended knee flexion" },
+        { id: "calf-raise", name: "Calf raise", sets: 3, reps: "10-15", focus: "Optional" },
       ],
     },
   },
@@ -494,7 +496,7 @@ function renderExerciseCard(dayKey, exercise, index) {
   const titleRow = createElement("div", "exercise-title-row");
   const titleWrap = createElement("div");
   const title = createTextElement("h3", exercise.name);
-  const target = createTextElement("p", `${exercise.sets} sets x ${exercise.reps} reps / ${exercise.focus}`);
+  const target = createTextElement("p", `${formatExerciseTarget(exercise)} / ${exercise.focus}`);
   target.className = "target-line";
   titleWrap.append(title, target);
   if (last) {
@@ -732,7 +734,7 @@ function finishWorkout() {
       return {
         exerciseId: exercise.id,
         exerciseName: exercise.name,
-        target: `${exercise.sets} x ${exercise.reps}`,
+        target: formatExerciseTargetCompact(exercise),
         noteSnapshot: state.notes[exercise.id] || "",
         sets,
       };
@@ -908,7 +910,7 @@ function renderProgramExerciseRow(dayKey, exercise, index, total) {
   const summary = createElement("div", "program-exercise-summary");
   const text = createElement("div");
   text.append(createTextElement("strong", exercise.name));
-  text.append(createTextElement("span", `${exercise.sets} x ${exercise.reps} / ${exercise.focus}`));
+  text.append(createTextElement("span", `${formatExerciseTargetCompact(exercise)} / ${exercise.focus}`));
 
   const controls = createElement("div", "program-exercise-controls");
   const upButton = createTextElement("button", "Up", "mini-button");
@@ -1109,7 +1111,7 @@ function renderExistingExerciseOptions() {
   catalog.forEach((exercise) => {
     const option = document.createElement("option");
     option.value = exercise.id;
-    option.textContent = `${exercise.name} (${exercise.sets} x ${exercise.reps})`;
+    option.textContent = `${exercise.name} (${formatExerciseTargetCompact(exercise)})`;
     fragment.append(option);
   });
   elements.existingExerciseSelect.replaceChildren(fragment);
@@ -1159,6 +1161,18 @@ function formatSets(sets) {
     .join(", ");
 }
 
+function formatExerciseTarget(exercise) {
+  return `${getSetCountLabel(exercise)} sets x ${exercise.reps} reps`;
+}
+
+function formatExerciseTargetCompact(exercise) {
+  return `${getSetCountLabel(exercise)} x ${exercise.reps}`;
+}
+
+function getSetCountLabel(exercise) {
+  return cleanText(exercise.setsLabel) || String(exercise.sets);
+}
+
 function createElement(tag, className) {
   const element = document.createElement(tag);
   if (className) {
@@ -1186,7 +1200,7 @@ function hasSupabaseConfig(config) {
 
 function createDefaultState() {
   return {
-    version: 3,
+    version: 4,
     updatedAt: new Date().toISOString(),
     currentCycleIndex: 0,
     programRevision: PROGRAM_TEMPLATE_VERSION,
@@ -1207,7 +1221,7 @@ function normalizeState(candidate) {
   const merged = {
     ...base,
     ...source,
-    version: Math.max(clampInteger(source.version, 1, 3, 1), 3),
+    version: Math.max(clampInteger(source.version, 1, PROGRAM_TEMPLATE_VERSION, 1), PROGRAM_TEMPLATE_VERSION),
     programRevision: PROGRAM_TEMPLATE_VERSION,
     notes: isObject(source.notes) ? source.notes : {},
     lastByExercise: isObject(source.lastByExercise) ? source.lastByExercise : {},
@@ -1249,7 +1263,15 @@ function remapCycleIndex(index, fromCycle, toCycle) {
   if (!oldSlot?.dayKey) {
     return 0;
   }
-  const newIndex = toCycle.findIndex((slot) => slot.dayKey === oldSlot.dayKey);
+  const occurrence = fromCycle.slice(0, index + 1).filter((slot) => slot.dayKey === oldSlot.dayKey).length;
+  let seen = 0;
+  const newIndex = toCycle.findIndex((slot) => {
+    if (slot.dayKey !== oldSlot.dayKey) {
+      return false;
+    }
+    seen += 1;
+    return seen === occurrence;
+  });
   return newIndex >= 0 ? newIndex : 0;
 }
 
@@ -1326,6 +1348,7 @@ function normalizeExercise(candidate, fallback = {}) {
     ...(slotId ? { slotId } : {}),
     name,
     sets,
+    ...(cleanText(source.setsLabel) ? { setsLabel: cleanText(source.setsLabel) } : {}),
     reps: cleanText(source.reps) || cleanText(fallback.reps) || "8-12",
     focus: cleanText(source.focus) || cleanText(fallback.focus) || "Custom",
   };
