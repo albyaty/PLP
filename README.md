@@ -13,6 +13,7 @@ draft.
 
 - 8-slot PLP cycle with rest slots.
 - Updated v2 arm-specialization split with Push and Pull separated by Legs.
+- Synced Push slots: Push 1 and Push 2 share the same exercise plan and in-progress entries.
 - Per-set weight, reps, and done tracking.
 - Sticky notes per exercise.
 - Last workout display per exercise.

@@ -1,6 +1,7 @@
 const STORAGE_PREFIX = "plp-gym-log-cache-v1:";
 const PROGRAM_NAME = "PLP Arm Specialization";
 const PROGRAM_TEMPLATE_VERSION = 4;
+const SYNCED_CYCLE_DAY_KEYS = new Set(["push"]);
 const CONFIG = window.PLP_CONFIG || {};
 const allowSignUp = CONFIG.allowSignUp === true;
 
@@ -404,9 +405,10 @@ function showMode(mode) {
 function render() {
   const active = getActiveCycleItem();
   const day = getProgram().days[active.dayKey];
+  const activeDisplay = getCycleSlotDisplay(active, state.currentCycleIndex);
 
   elements.cycleLabel.textContent = PROGRAM_NAME;
-  elements.dayTitle.textContent = active.dayKey === "rest" ? "Rest" : day?.title || active.label;
+  elements.dayTitle.textContent = active.dayKey === "rest" ? "Rest" : activeDisplay.label;
   elements.unitSelect.value = state.settings.unit;
   elements.accountLabel.textContent = currentUser?.email || "Signed in";
 
@@ -428,7 +430,7 @@ function render() {
   }
 
   elements.sessionKicker.textContent = day.kicker;
-  elements.sessionTitle.textContent = day.title;
+  elements.sessionTitle.textContent = activeDisplay.label;
   elements.sessionNote.textContent = day.note;
   elements.restView.hidden = true;
   elements.exerciseList.hidden = false;
@@ -448,6 +450,7 @@ function render() {
 function renderCycleRail() {
   const fragment = document.createDocumentFragment();
   getProgram().cycle.forEach((slot, index) => {
+    const display = getCycleSlotDisplay(slot, index);
     const button = document.createElement("button");
     button.className = "cycle-chip";
     button.type = "button";
@@ -457,7 +460,7 @@ function renderCycleRail() {
     if (slot.dayKey === "rest") {
       button.classList.add("is-rest");
     }
-    button.append(slot.label, createTextElement("span", slot.detail));
+    button.append(display.label, createTextElement("span", display.detail));
     button.addEventListener("click", () => {
       state.currentCycleIndex = index;
       touchAndSave("Day changed");
@@ -851,6 +854,36 @@ function getActiveCycleItem() {
   return cycle[state.currentCycleIndex] || cycle[0];
 }
 
+function getCycleSlotDisplay(slot, index) {
+  if (!slot) {
+    return { label: "", detail: "" };
+  }
+  const syncInfo = getSyncedCycleInfo(slot.dayKey, index);
+  if (!syncInfo.isSynced) {
+    return { label: slot.label, detail: slot.detail };
+  }
+  return {
+    label: `${slot.label} ${syncInfo.occurrence}`,
+    detail: "Synced",
+  };
+}
+
+function getSyncedCycleInfo(dayKey, index = state.currentCycleIndex) {
+  if (!SYNCED_CYCLE_DAY_KEYS.has(dayKey)) {
+    return { isSynced: false, occurrence: 1, total: 1 };
+  }
+  const matchingIndexes = getProgram()
+    .cycle
+    .map((slot, slotIndex) => (slot.dayKey === dayKey ? slotIndex : -1))
+    .filter((slotIndex) => slotIndex >= 0);
+  const occurrenceIndex = Math.max(0, matchingIndexes.indexOf(index));
+  return {
+    isSynced: matchingIndexes.length > 1,
+    occurrence: occurrenceIndex + 1,
+    total: matchingIndexes.length,
+  };
+}
+
 function wrapIndex(index) {
   const length = getProgram().cycle.length;
   return (index + length) % length;
@@ -887,9 +920,15 @@ function renderProgramEditor() {
   }
 
   elements.programTitle.textContent = `Edit ${day.title}`;
-  elements.programExerciseCount.textContent = `${day.exercises.length} exercise${day.exercises.length === 1 ? "" : "s"}`;
+  elements.programExerciseCount.textContent = getProgramExerciseCountLabel(active.dayKey, day.exercises.length);
   renderProgramExerciseList(active.dayKey, day);
   renderExistingExerciseOptions();
+}
+
+function getProgramExerciseCountLabel(dayKey, count) {
+  const base = `${count} exercise${count === 1 ? "" : "s"}`;
+  const syncInfo = getSyncedCycleInfo(dayKey);
+  return syncInfo.isSynced ? `${base} / Push slots synced` : base;
 }
 
 function renderProgramExerciseList(dayKey, day) {
