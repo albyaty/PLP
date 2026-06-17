@@ -1,18 +1,18 @@
 const STORAGE_PREFIX = "plp-gym-log-cache-v1:";
 const PROGRAM_NAME = "PLP Arm Specialization";
 const PROGRAM_TEMPLATE_VERSION = 4;
-const SYNCED_CYCLE_DAY_KEYS = new Set(["push"]);
+const SYNCED_CYCLE_DAY_KEYS = new Set(["push", "legs"]);
 const CONFIG = window.PLP_CONFIG || {};
 const allowSignUp = CONFIG.allowSignUp === true;
 
 const DEFAULT_PROGRAM = {
   cycle: [
     { dayKey: "push", label: "Push", detail: "Chest + tri" },
-    { dayKey: "legs", label: "Legs", detail: "Lean lower" },
+    { dayKey: "legs", label: "Abs & Legs", detail: "Abs first" },
     { dayKey: "pull-a", label: "Pull A", detail: "Fresh arms" },
     { dayKey: "rest", label: "Rest", detail: "Recover" },
     { dayKey: "push", label: "Push", detail: "Chest + tri" },
-    { dayKey: "legs", label: "Legs", detail: "Lean lower" },
+    { dayKey: "legs", label: "Abs & Legs", detail: "Abs first" },
     { dayKey: "pull-b", label: "Pull B", detail: "Back priority" },
     { dayKey: "rest", label: "Rest", detail: "Recover" },
   ],
@@ -57,7 +57,7 @@ const DEFAULT_PROGRAM = {
       ],
     },
     legs: {
-      title: "Legs",
+      title: "Abs & Legs",
       kicker: "Abs first, lean lower",
       note: "Abs get the fresh slot. Keep crunches shy of failure and rest before squatting.",
       exercises: [
@@ -754,7 +754,7 @@ function finishWorkout() {
     date: new Date().toISOString(),
     cycleIndex: state.currentCycleIndex,
     dayKey: active.dayKey,
-    dayTitle: day.title,
+    dayTitle: getDayDisplayBase(active).label,
     entries,
   };
 
@@ -859,13 +859,21 @@ function getCycleSlotDisplay(slot, index) {
     return { label: "", detail: "" };
   }
   const syncInfo = getSyncedCycleInfo(slot.dayKey, index);
+  const base = getDayDisplayBase(slot);
   if (!syncInfo.isSynced) {
-    return { label: slot.label, detail: slot.detail };
+    return base;
   }
   return {
-    label: `${slot.label} ${syncInfo.occurrence}`,
-    detail: "Synced",
+    label: `${base.label} ${syncInfo.occurrence}`,
+    detail: base.detail,
   };
+}
+
+function getDayDisplayBase(slot) {
+  if (slot.dayKey === "legs") {
+    return { label: "Abs & Legs", detail: cleanText(slot.detail) || "Abs first" };
+  }
+  return { label: slot.label, detail: slot.detail };
 }
 
 function getSyncedCycleInfo(dayKey, index = state.currentCycleIndex) {
@@ -919,16 +927,14 @@ function renderProgramEditor() {
     return;
   }
 
-  elements.programTitle.textContent = `Edit ${day.title}`;
+  elements.programTitle.textContent = `Edit ${getDayDisplayBase(active).label}`;
   elements.programExerciseCount.textContent = getProgramExerciseCountLabel(active.dayKey, day.exercises.length);
   renderProgramExerciseList(active.dayKey, day);
   renderExistingExerciseOptions();
 }
 
 function getProgramExerciseCountLabel(dayKey, count) {
-  const base = `${count} exercise${count === 1 ? "" : "s"}`;
-  const syncInfo = getSyncedCycleInfo(dayKey);
-  return syncInfo.isSynced ? `${base} / Push slots synced` : base;
+  return `${count} exercise${count === 1 ? "" : "s"}`;
 }
 
 function renderProgramExerciseList(dayKey, day) {
@@ -1343,17 +1349,29 @@ function normalizeProgram(candidate) {
 
   const cycle = Array.isArray(candidate.cycle) && candidate.cycle.length
     ? candidate.cycle
-        .map((slot) => ({
-          dayKey: cleanText(slot?.dayKey) || "rest",
-          label: cleanText(slot?.label) || "Rest",
-          detail: cleanText(slot?.detail) || "",
-        }))
+        .map(normalizeCycleSlot)
         .filter((slot) => slot.dayKey === "rest" || days[slot.dayKey])
     : fallback.cycle;
 
   return {
     cycle: cycle.length ? cycle : fallback.cycle,
     days,
+  };
+}
+
+function normalizeCycleSlot(slot) {
+  const dayKey = cleanText(slot?.dayKey) || "rest";
+  if (dayKey === "legs") {
+    return {
+      dayKey,
+      label: "Abs & Legs",
+      detail: cleanText(slot?.detail) && cleanText(slot.detail) !== "Lean lower" ? cleanText(slot.detail) : "Abs first",
+    };
+  }
+  return {
+    dayKey,
+    label: cleanText(slot?.label) || "Rest",
+    detail: cleanText(slot?.detail) || "",
   };
 }
 
@@ -1364,7 +1382,7 @@ function normalizeProgramDay(candidate, fallback) {
   const exercises = exercisesSource.map((exercise) => normalizeExercise(exercise)).filter(Boolean);
 
   return {
-    title: cleanText(source.title) || fallback.title,
+    title: fallback.title === "Abs & Legs" && cleanText(source.title) === "Legs" ? "Abs & Legs" : cleanText(source.title) || fallback.title,
     kicker: cleanText(source.kicker) || fallback.kicker,
     note: cleanText(source.note) || fallback.note || "",
     exercises,
