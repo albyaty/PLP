@@ -4,6 +4,8 @@ const PROGRAM_TEMPLATE_VERSION = 4;
 const SYNCED_CYCLE_DAY_KEYS = new Set(["push", "legs"]);
 const CONFIG = window.PLP_CONFIG || {};
 const allowSignUp = CONFIG.allowSignUp === true;
+const SNAPSHOT_LIMIT = 10;
+const REMOTE_CONFLICT_SKEW_MS = 1000;
 
 const DEFAULT_PROGRAM = {
   cycle: [
@@ -149,6 +151,10 @@ let statusTimer = null;
 let toastTimer = null;
 let installPrompt = null;
 let editingExerciseIndex = null;
+let lastCloudUpdatedAt = null;
+let lastLoadedState = null;
+let syncInFlight = false;
+let syncQueued = false;
 
 const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 const fullDate = new Intl.DateTimeFormat(undefined, {
@@ -176,6 +182,7 @@ async function boot() {
   if (previewMode && localPreviewHost) {
     currentUser = { id: "preview", email: "preview@local" };
     state = createDemoState();
+    lastLoadedState = cloneState(state);
     showMode("app");
     setSyncStatus("Preview only");
     render();
@@ -202,6 +209,8 @@ async function boot() {
     if (event === "SIGNED_OUT") {
       currentUser = null;
       state = createDefaultState();
+      lastCloudUpdatedAt = null;
+      lastLoadedState = null;
       showMode("auth");
       return;
     }
@@ -282,6 +291,12 @@ function wireEvents() {
   });
 
   window.addEventListener("online", () => syncNow(false));
+  window.addEventListener("focus", refreshFromCloudIfSafe);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      refreshFromCloudIfSafe();
+    }
+  });
 }
 
 async function signIn() {
@@ -339,6 +354,8 @@ async function signOut() {
   await supabase.auth.signOut();
   currentUser = null;
   state = createDefaultState();
+  lastCloudUpdatedAt = null;
+  lastLoadedState = null;
   showMode("auth");
   closeSettings();
 }
@@ -352,16 +369,14 @@ async function loadCloudState() {
   showMode("app");
   setSyncStatus("Syncing");
 
-  const { data, error } = await supabase
-    .from("workout_state")
-    .select("state, updated_at")
-    .eq("user_id", currentUser.id)
-    .maybeSingle();
+  const { data, error } = await fetchRemoteStateRecord();
 
   if (error) {
     const cached = getCachedRecord();
     if (cached?.state) {
       state = normalizeState(cached.state);
+      lastCloudUpdatedAt = cached.cloudUpdatedAt || null;
+      lastLoadedState = cached.baseState ? normalizeState(cached.baseState) : cloneState(state);
       setSyncStatus("Offline cache");
       render();
       return;
@@ -375,18 +390,22 @@ async function loadCloudState() {
   const cached = getCachedRecord();
   if (!data) {
     state = normalizeState(cached?.state || createDefaultState());
+    lastCloudUpdatedAt = null;
+    lastLoadedState = cached?.baseState ? normalizeState(cached.baseState) : cloneState(state);
     await syncNow(false);
     render();
     return;
   }
 
   const cloudState = normalizeState(data.state);
+  lastCloudUpdatedAt = data.updated_at || cloudState.updatedAt || null;
   const shouldPreferCache =
     cached?.pending &&
     cached.state?.updatedAt &&
-    new Date(cached.state.updatedAt).getTime() > new Date(cloudState.updatedAt || data.updated_at).getTime();
+    getTimestamp(cached.state.updatedAt) > getTimestamp(cloudState.updatedAt || data.updated_at);
 
   state = shouldPreferCache ? normalizeState(cached.state) : cloudState;
+  lastLoadedState = shouldPreferCache ? normalizeState(cached.baseState || cloudState) : cloneState(state);
   cacheState(false);
   setSyncStatus("Synced");
   render();
@@ -1324,6 +1343,10 @@ function cloneProgram(program) {
   return JSON.parse(JSON.stringify(program));
 }
 
+function cloneState(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function normalizeProgram(candidate) {
   const fallback = cloneProgram(DEFAULT_PROGRAM);
   if (!isObject(candidate)) {
@@ -1475,28 +1498,77 @@ function scheduleSync() {
   }, 520);
 }
 
-async function syncNow(showSuccessToast) {
+async function syncNow(showSuccessToast, options = {}) {
   if (!currentUser || !supabase || previewMode) {
     return;
   }
-  window.clearTimeout(saveTimer);
-  setSyncStatus("Syncing");
-  const { error } = await supabase
-    .from("workout_state")
-    .upsert({ user_id: currentUser.id, state }, { onConflict: "user_id" });
-  if (error) {
-    cacheState(true);
-    setSyncStatus("Will retry");
-    if (showSuccessToast) {
-      showToast(error.message);
-    }
+  if (syncInFlight) {
+    syncQueued = true;
     return;
   }
-  cacheState(false);
-  setSyncStatus("Synced");
-  setDraftStatus("Synced");
-  if (showSuccessToast) {
-    showToast("Synced to cloud.");
+  syncInFlight = true;
+  window.clearTimeout(saveTimer);
+  setSyncStatus("Syncing");
+
+  try {
+    const { data: remoteRecord, error: fetchError } = await fetchRemoteStateRecord();
+    if (fetchError) {
+      cacheState(true);
+      setSyncStatus("Will retry");
+      if (showSuccessToast) {
+        showToast(fetchError.message);
+      }
+      return;
+    }
+
+    let nextState = normalizeState(state);
+    let didMerge = false;
+    const remoteState = remoteRecord?.state ? normalizeState(remoteRecord.state) : null;
+    const remoteUpdatedAt = remoteRecord?.updated_at || remoteState?.updatedAt || null;
+    const remoteChangedSinceLoad =
+      remoteState &&
+      (!lastCloudUpdatedAt || getTimestamp(remoteUpdatedAt) > getTimestamp(lastCloudUpdatedAt) + REMOTE_CONFLICT_SKEW_MS);
+
+    if (remoteChangedSinceLoad && !options.forceReplace) {
+      saveStateSnapshot("local-before-merge", nextState);
+      saveStateSnapshot("cloud-before-merge", remoteState);
+      nextState = mergeStates(remoteState, nextState, lastLoadedState);
+      didMerge = true;
+      state = nextState;
+      setSyncStatus("Merging");
+      render();
+    }
+
+    const { data: savedRecord, error: saveError } = await supabase
+      .from("workout_state")
+      .upsert({ user_id: currentUser.id, state: nextState }, { onConflict: "user_id" })
+      .select("updated_at")
+      .single();
+
+    if (saveError) {
+      cacheState(true);
+      setSyncStatus("Will retry");
+      if (showSuccessToast) {
+        showToast(saveError.message);
+      }
+      return;
+    }
+
+    state = nextState;
+    lastCloudUpdatedAt = savedRecord?.updated_at || new Date().toISOString();
+    lastLoadedState = cloneState(state);
+    cacheState(false);
+    setSyncStatus("Synced");
+    setDraftStatus("Synced");
+    if (showSuccessToast) {
+      showToast(didMerge ? "Merged and synced to cloud." : "Synced to cloud.");
+    }
+  } finally {
+    syncInFlight = false;
+    if (syncQueued) {
+      syncQueued = false;
+      scheduleSync();
+    }
   }
 }
 
@@ -1510,6 +1582,8 @@ function cacheState(pending) {
       state,
       pending: Boolean(pending),
       cachedAt: new Date().toISOString(),
+      cloudUpdatedAt: lastCloudUpdatedAt,
+      baseState: pending && lastLoadedState ? lastLoadedState : null,
     }),
   );
 }
@@ -1528,6 +1602,247 @@ function getCachedRecord() {
 
 function getCacheKey() {
   return `${STORAGE_PREFIX}${currentUser.id}`;
+}
+
+async function fetchRemoteStateRecord() {
+  return supabase.from("workout_state").select("state, updated_at").eq("user_id", currentUser.id).maybeSingle();
+}
+
+async function refreshFromCloudIfSafe() {
+  if (!currentUser || !supabase || previewMode || syncInFlight) {
+    return;
+  }
+  const cached = getCachedRecord();
+  if (cached?.pending) {
+    return;
+  }
+  const { data, error } = await fetchRemoteStateRecord();
+  if (error || !data) {
+    return;
+  }
+  const remoteUpdatedAt = data.updated_at || data.state?.updatedAt || null;
+  if (lastCloudUpdatedAt && getTimestamp(remoteUpdatedAt) <= getTimestamp(lastCloudUpdatedAt) + REMOTE_CONFLICT_SKEW_MS) {
+    return;
+  }
+  state = normalizeState(data.state);
+  lastCloudUpdatedAt = remoteUpdatedAt;
+  lastLoadedState = cloneState(state);
+  cacheState(false);
+  setSyncStatus("Synced");
+  render();
+}
+
+function mergeStates(remoteCandidate, localCandidate, baseCandidate) {
+  const remote = normalizeState(remoteCandidate);
+  const local = normalizeState(localCandidate);
+  const base = baseCandidate ? normalizeState(baseCandidate) : null;
+  const merged = {
+    ...remote,
+    version: Math.max(remote.version || 1, local.version || 1),
+    updatedAt: new Date().toISOString(),
+    currentCycleIndex: mergePrimitive(remote.currentCycleIndex, local.currentCycleIndex, base?.currentCycleIndex),
+    programRevision: Math.max(remote.programRevision || 1, local.programRevision || 1, PROGRAM_TEMPLATE_VERSION),
+    program: mergeProgram(remote.program, local.program, base?.program),
+    notes: mergeNotes(remote.notes, local.notes, base?.notes),
+    lastByExercise: mergeLastByExercise(remote.lastByExercise, local.lastByExercise),
+    logs: mergeLogs(remote.logs, local.logs),
+    drafts: mergeDrafts(remote.drafts, local.drafts, base?.drafts),
+    settings: mergeSettings(remote.settings, local.settings, base?.settings),
+  };
+  return normalizeState(merged);
+}
+
+function mergeProgram(remoteProgram, localProgram, baseProgram) {
+  if (!baseProgram) {
+    return cloneProgram(remoteProgram || localProgram || DEFAULT_PROGRAM);
+  }
+  const localChanged = !sameJson(localProgram, baseProgram);
+  const remoteChanged = !sameJson(remoteProgram, baseProgram);
+  if (localChanged && !remoteChanged) {
+    return cloneProgram(localProgram);
+  }
+  return cloneProgram(remoteProgram || localProgram || DEFAULT_PROGRAM);
+}
+
+function mergeSettings(remoteSettings = {}, localSettings = {}, baseSettings = {}) {
+  const unit = mergePrimitive(remoteSettings.unit, localSettings.unit, baseSettings.unit);
+  return { ...remoteSettings, ...localSettings, unit: ["lb", "kg"].includes(unit) ? unit : "lb" };
+}
+
+function mergeNotes(remoteNotes = {}, localNotes = {}, baseNotes = {}) {
+  const merged = {};
+  const keys = new Set([...Object.keys(remoteNotes || {}), ...Object.keys(localNotes || {}), ...Object.keys(baseNotes || {})]);
+  keys.forEach((key) => {
+    const value = mergePrimitive(cleanText(remoteNotes?.[key]), cleanText(localNotes?.[key]), cleanText(baseNotes?.[key]));
+    if (value) {
+      merged[key] = value;
+    }
+  });
+  return merged;
+}
+
+function mergeLastByExercise(remoteLast = {}, localLast = {}) {
+  const merged = {};
+  const keys = new Set([...Object.keys(remoteLast || {}), ...Object.keys(localLast || {})]);
+  keys.forEach((key) => {
+    const remoteEntry = remoteLast?.[key];
+    const localEntry = localLast?.[key];
+    if (!remoteEntry) {
+      merged[key] = localEntry;
+      return;
+    }
+    if (!localEntry) {
+      merged[key] = remoteEntry;
+      return;
+    }
+    merged[key] = getTimestamp(localEntry.date) >= getTimestamp(remoteEntry.date) ? localEntry : remoteEntry;
+  });
+  return merged;
+}
+
+function mergeLogs(remoteLogs = [], localLogs = []) {
+  const byKey = new Map();
+  [...remoteLogs, ...localLogs].forEach((log) => {
+    if (!isObject(log)) {
+      return;
+    }
+    const key = getLogMergeKey(log);
+    const existing = byKey.get(key);
+    if (!existing || getTimestamp(log.date) >= getTimestamp(existing.date)) {
+      byKey.set(key, log);
+    }
+  });
+  return [...byKey.values()].sort((a, b) => getTimestamp(b.date) - getTimestamp(a.date)).slice(0, 120);
+}
+
+function getLogMergeKey(log) {
+  return cleanText(log.id) || `${cleanText(log.date)}:${cleanText(log.dayTitle)}:${JSON.stringify(log.entries || [])}`;
+}
+
+function mergeDrafts(remoteDrafts = {}, localDrafts = {}, baseDrafts = {}) {
+  const merged = {};
+  const dayKeys = new Set([...Object.keys(remoteDrafts || {}), ...Object.keys(localDrafts || {}), ...Object.keys(baseDrafts || {})]);
+  dayKeys.forEach((dayKey) => {
+    const remoteDay = isObject(remoteDrafts?.[dayKey]) ? remoteDrafts[dayKey] : {};
+    const localDay = isObject(localDrafts?.[dayKey]) ? localDrafts[dayKey] : {};
+    const baseDay = isObject(baseDrafts?.[dayKey]) ? baseDrafts[dayKey] : {};
+    const exercises = mergeDraftExercises(remoteDay.exercises, localDay.exercises, baseDay.exercises);
+    if (Object.keys(exercises).length) {
+      merged[dayKey] = {
+        updatedAt: newestIsoDate(remoteDay.updatedAt, localDay.updatedAt, baseDay.updatedAt),
+        exercises,
+      };
+    }
+  });
+  return merged;
+}
+
+function mergeDraftExercises(remoteExercises = {}, localExercises = {}, baseExercises = {}) {
+  const merged = {};
+  const exerciseKeys = new Set([
+    ...Object.keys(remoteExercises || {}),
+    ...Object.keys(localExercises || {}),
+    ...Object.keys(baseExercises || {}),
+  ]);
+  exerciseKeys.forEach((exerciseKey) => {
+    const remoteSets = Array.isArray(remoteExercises?.[exerciseKey]) ? remoteExercises[exerciseKey] : [];
+    const localSets = Array.isArray(localExercises?.[exerciseKey]) ? localExercises[exerciseKey] : [];
+    const baseSets = Array.isArray(baseExercises?.[exerciseKey]) ? baseExercises[exerciseKey] : [];
+    const length = Math.max(remoteSets.length, localSets.length, baseSets.length);
+    const sets = [];
+    for (let index = 0; index < length; index += 1) {
+      sets.push(mergeDraftSet(remoteSets[index], localSets[index], baseSets[index]));
+    }
+    if (sets.some(hasSetValue)) {
+      merged[exerciseKey] = sets;
+    }
+  });
+  return merged;
+}
+
+function mergeDraftSet(remoteSet, localSet, baseSet) {
+  const remote = normalizeSet(remoteSet);
+  const local = normalizeSet(localSet);
+  const base = normalizeSet(baseSet);
+  return {
+    weight: mergePrimitive(remote.weight, local.weight, base.weight),
+    reps: mergePrimitive(remote.reps, local.reps, base.reps),
+    done: mergePrimitive(remote.done, local.done, base.done),
+  };
+}
+
+function hasSetValue(set) {
+  return Boolean(cleanText(set.weight) || cleanText(set.reps) || set.done);
+}
+
+function mergePrimitive(remoteValue, localValue, baseValue) {
+  const remoteChanged = !samePrimitive(remoteValue, baseValue);
+  const localChanged = !samePrimitive(localValue, baseValue);
+  if (localChanged && !remoteChanged) {
+    return localValue;
+  }
+  if (remoteChanged && !localChanged) {
+    return remoteValue;
+  }
+  if (localChanged && remoteChanged) {
+    return hasUsefulValue(localValue) ? localValue : remoteValue;
+  }
+  return hasUsefulValue(localValue) ? localValue : remoteValue;
+}
+
+function samePrimitive(first, second) {
+  return normalizePrimitive(first) === normalizePrimitive(second);
+}
+
+function normalizePrimitive(value) {
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (value == null) {
+    return "";
+  }
+  return String(value).trim();
+}
+
+function hasUsefulValue(value) {
+  return typeof value === "boolean" ? value : normalizePrimitive(value) !== "";
+}
+
+function sameJson(first, second) {
+  return JSON.stringify(first || null) === JSON.stringify(second || null);
+}
+
+function newestIsoDate(...values) {
+  const newest = values.reduce((max, value) => Math.max(max, getTimestamp(value)), 0);
+  return newest ? new Date(newest).toISOString() : null;
+}
+
+function getTimestamp(value) {
+  const timestamp = new Date(value || 0).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function saveStateSnapshot(label, snapshotState) {
+  if (!currentUser) {
+    return;
+  }
+  try {
+    const key = getSnapshotKey();
+    const existing = JSON.parse(localStorage.getItem(key) || "[]");
+    const snapshots = Array.isArray(existing) ? existing : [];
+    snapshots.unshift({
+      label,
+      savedAt: new Date().toISOString(),
+      state: cloneState(snapshotState),
+    });
+    localStorage.setItem(key, JSON.stringify(snapshots.slice(0, SNAPSHOT_LIMIT)));
+  } catch {
+    // Snapshots are best-effort safety copies.
+  }
+}
+
+function getSnapshotKey() {
+  return `${getCacheKey()}:snapshots`;
 }
 
 function setSyncStatus(text) {
@@ -1586,7 +1901,7 @@ async function importBackup() {
     }
     state = normalizeState(importedState);
     touchAndSave("Backup imported");
-    await syncNow(true);
+    await syncNow(true, { forceReplace: true });
     render();
   } catch (error) {
     showToast(`Import failed: ${error.message}`);
@@ -1599,7 +1914,7 @@ async function resetData() {
   }
   state = createDefaultState();
   touchAndSave("Reset saved");
-  await syncNow(true);
+  await syncNow(true, { forceReplace: true });
   render();
 }
 

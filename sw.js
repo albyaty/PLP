@@ -1,4 +1,4 @@
-const CACHE_NAME = "plp-gym-log-v7";
+const CACHE_NAME = "plp-gym-log-v8";
 const APP_ASSETS = [
   "./",
   "./index.html",
