@@ -5,6 +5,7 @@ const SYNCED_CYCLE_DAY_KEYS = new Set(["push", "legs"]);
 const CONFIG = window.PLP_CONFIG || {};
 const allowSignUp = CONFIG.allowSignUp === true;
 const SNAPSHOT_LIMIT = 10;
+const SYNC_HISTORY_LIMIT = 5;
 const REMOTE_CONFLICT_SKEW_MS = 1000;
 
 const DEFAULT_PROGRAM = {
@@ -104,7 +105,6 @@ const elements = {
   sessionTitle: byId("sessionTitle"),
   sessionNote: byId("sessionNote"),
   editDayButton: byId("editDayButton"),
-  useLastAllButton: byId("useLastAllButton"),
   clearDraftButton: byId("clearDraftButton"),
   restView: byId("restView"),
   exerciseList: byId("exerciseList"),
@@ -118,6 +118,9 @@ const elements = {
   unitSelect: byId("unitSelect"),
   accountLabel: byId("accountLabel"),
   syncNowButton: byId("syncNowButton"),
+  restorePointLabel: byId("restorePointLabel"),
+  restoreSyncButton: byId("restoreSyncButton"),
+  redoSyncButton: byId("redoSyncButton"),
   exportButton: byId("exportButton"),
   importInput: byId("importInput"),
   installButton: byId("installButton"),
@@ -253,7 +256,6 @@ function wireEvents() {
   elements.prevDayButton.addEventListener("click", () => moveCycle(-1));
   elements.nextDayButton.addEventListener("click", () => moveCycle(1));
   elements.editDayButton.addEventListener("click", openProgramEditor);
-  elements.useLastAllButton.addEventListener("click", loadAllLastWeights);
   elements.clearDraftButton.addEventListener("click", clearCurrentDraft);
   elements.finishWorkoutButton.addEventListener("click", finishWorkout);
   elements.settingsButton.addEventListener("click", openSettings);
@@ -278,6 +280,8 @@ function wireEvents() {
     render();
   });
   elements.syncNowButton.addEventListener("click", () => syncNow(true));
+  elements.restoreSyncButton.addEventListener("click", restorePreviousSync);
+  elements.redoSyncButton.addEventListener("click", redoRestoredSync);
   elements.exportButton.addEventListener("click", exportBackup);
   elements.importInput.addEventListener("change", importBackup);
   elements.resetButton.addEventListener("click", resetData);
@@ -433,6 +437,7 @@ function render() {
 
   renderCycleRail();
   renderRecent();
+  renderRestoreControls();
 
   if (active.dayKey === "rest") {
     elements.sessionKicker.textContent = "Program rhythm";
@@ -441,7 +446,6 @@ function render() {
     elements.restView.hidden = false;
     elements.exerciseList.hidden = true;
     elements.editDayButton.hidden = true;
-    elements.useLastAllButton.hidden = true;
     elements.clearDraftButton.hidden = true;
     elements.finishWorkoutButton.textContent = "Next gym day";
     elements.completionCount.textContent = "Rest slot";
@@ -454,7 +458,6 @@ function render() {
   elements.restView.hidden = true;
   elements.exerciseList.hidden = false;
   elements.editDayButton.hidden = false;
-  elements.useLastAllButton.hidden = false;
   elements.clearDraftButton.hidden = false;
   elements.finishWorkoutButton.textContent = "Finish workout";
 
@@ -545,15 +548,6 @@ function renderExerciseCard(dayKey, exercise, index) {
   });
 
   const actions = createElement("div", "card-actions");
-  const loadButton = createTextElement("button", "Load weights", "mini-button");
-  loadButton.type = "button";
-  loadButton.disabled = !last;
-  loadButton.addEventListener("click", () => {
-    loadLastWeightsForExercise(dayKey, exercise, false);
-    render();
-    showToast(`Loaded ${exercise.name} weights.`);
-  });
-
   const addSetButton = createTextElement("button", "Add set", "mini-button");
   addSetButton.type = "button";
   addSetButton.addEventListener("click", () => {
@@ -561,7 +555,7 @@ function renderExerciseCard(dayKey, exercise, index) {
     touchAndSave("Set added");
     render();
   });
-  actions.append(loadButton, addSetButton);
+  actions.append(addSetButton);
 
   const noteLabel = createElement("label", "note-field");
   noteLabel.append(createTextElement("span", "Note for next time"));
@@ -657,6 +651,19 @@ function renderRecent() {
   elements.recentList.replaceChildren(fragment);
 }
 
+function renderRestoreControls() {
+  const history = normalizeSyncHistory(state.syncHistory);
+  const redoHistory = normalizeSyncHistory(state.redoHistory);
+  const latest = history[0];
+  const redo = redoHistory[0];
+
+  elements.restoreSyncButton.disabled = !latest;
+  elements.redoSyncButton.disabled = !redo;
+  elements.restorePointLabel.textContent = latest
+    ? `Previous sync saved ${formatHistoryDate(latest.savedAt)}. Up to ${SYNC_HISTORY_LIMIT} restore points are kept.`
+    : "No previous sync saved yet.";
+}
+
 function updateSet(dayKey, exercise, setIndex, patch) {
   const sets = ensureDraftSets(dayKey, exercise);
   sets[setIndex] = { ...sets[setIndex], ...patch };
@@ -698,44 +705,6 @@ function clearCurrentDraft() {
   delete state.drafts[active.dayKey];
   touchAndSave("Draft cleared");
   render();
-}
-
-function loadAllLastWeights() {
-  const active = getActiveCycleItem();
-  if (active.dayKey === "rest") {
-    return;
-  }
-  const day = getProgram().days[active.dayKey];
-  let loaded = 0;
-  day.exercises.forEach((exercise) => {
-    if (loadLastWeightsForExercise(active.dayKey, exercise, true)) {
-      loaded += 1;
-    }
-  });
-  touchAndSave("Weights loaded");
-  render();
-  showToast(loaded ? `Loaded weights for ${loaded} exercises.` : "No previous weights yet.");
-}
-
-function loadLastWeightsForExercise(dayKey, exercise, skipSave) {
-  const last = state.lastByExercise[exercise.id];
-  if (!last?.sets?.length) {
-    return false;
-  }
-  const sets = ensureDraftSets(dayKey, exercise);
-  last.sets.forEach((lastSet, index) => {
-    if (!sets[index]) {
-      sets[index] = createEmptySet();
-    }
-    sets[index].weight = lastSet.weight || "";
-    sets[index].reps = "";
-    sets[index].done = false;
-  });
-  getDraft(dayKey).updatedAt = new Date().toISOString();
-  if (!skipSave) {
-    touchAndSave("Weights loaded");
-  }
-  return true;
 }
 
 function finishWorkout() {
@@ -1274,6 +1243,8 @@ function createDefaultState() {
     logs: [],
     drafts: {},
     settings: { unit: "lb" },
+    syncHistory: [],
+    redoHistory: [],
   };
 }
 
@@ -1293,6 +1264,8 @@ function normalizeState(candidate) {
     logs: Array.isArray(source.logs) ? source.logs : [],
     program: shouldUseUpdatedTemplate ? cloneProgram(DEFAULT_PROGRAM) : normalizeProgram(source.program),
     settings: { ...base.settings, ...(isObject(source.settings) ? source.settings : {}) },
+    syncHistory: normalizeSyncHistory(source.syncHistory),
+    redoHistory: normalizeSyncHistory(source.redoHistory),
   };
   if (shouldUseUpdatedTemplate) {
     merged.currentCycleIndex = remapCycleIndex(source.currentCycleIndex, source.program?.cycle || LEGACY_CYCLE_V2, merged.program.cycle);
@@ -1308,6 +1281,25 @@ function normalizeState(candidate) {
     merged.settings.unit = "lb";
   }
   return merged;
+}
+
+function normalizeSyncHistory(candidate) {
+  if (!Array.isArray(candidate)) {
+    return [];
+  }
+  return candidate.map(normalizeSyncHistoryEntry).filter(Boolean).slice(0, SYNC_HISTORY_LIMIT);
+}
+
+function normalizeSyncHistoryEntry(entry) {
+  if (!isObject(entry) || !isObject(entry.state)) {
+    return null;
+  }
+  return {
+    id: cleanText(entry.id) || createSnapshotId(),
+    label: cleanText(entry.label) || "Previous sync",
+    savedAt: getTimestamp(entry.savedAt) ? new Date(entry.savedAt).toISOString() : new Date().toISOString(),
+    state: stripRestoreHistory(entry.state),
+  };
 }
 
 function isObject(value) {
@@ -1539,6 +1531,10 @@ async function syncNow(showSuccessToast, options = {}) {
       render();
     }
 
+    if (remoteState && !options.skipHistory) {
+      nextState = addSyncHistoryEntry(nextState, remoteState, options.historyLabel || "Before sync");
+    }
+
     const { data: savedRecord, error: saveError } = await supabase
       .from("workout_state")
       .upsert({ user_id: currentUser.id, state: nextState }, { onConflict: "user_id" })
@@ -1632,6 +1628,63 @@ async function refreshFromCloudIfSafe() {
   render();
 }
 
+async function restorePreviousSync() {
+  await restoreFromHistoryStack({
+    sourceKey: "syncHistory",
+    targetKey: "redoHistory",
+    emptyMessage: "No previous sync saved yet.",
+    confirmMessage: "Restore the previous cloud sync? Your current state moves to Redo.",
+    targetLabel: "Before restore",
+    status: "Previous sync restored",
+  });
+}
+
+async function redoRestoredSync() {
+  await restoreFromHistoryStack({
+    sourceKey: "redoHistory",
+    targetKey: "syncHistory",
+    emptyMessage: "No redo restore available.",
+    confirmMessage: "Redo the restored state? Your current state moves back to restore history.",
+    targetLabel: "Before redo",
+    status: "Redo restored",
+  });
+}
+
+async function restoreFromHistoryStack({ sourceKey, targetKey, emptyMessage, confirmMessage, targetLabel, status }) {
+  const source = normalizeSyncHistory(state[sourceKey]);
+  const entry = source[0];
+  if (!entry) {
+    showToast(emptyMessage);
+    renderRestoreControls();
+    return;
+  }
+  if (!window.confirm(`${confirmMessage}\n\nRestore point: ${formatHistoryDate(entry.savedAt)}`)) {
+    return;
+  }
+
+  const currentSnapshot = stripRestoreHistory(state);
+  const restored = normalizeState(entry.state);
+  restored[sourceKey] = source.slice(1);
+  restored[targetKey] = mergeSyncHistory(
+    [
+      {
+        id: createSnapshotId(),
+        label: targetLabel,
+        savedAt: new Date().toISOString(),
+        state: currentSnapshot,
+      },
+    ],
+    state[targetKey],
+  );
+  restored.updatedAt = new Date().toISOString();
+
+  state = restored;
+  touchAndSave(status);
+  render();
+  await syncNow(true, { forceReplace: true, skipHistory: true });
+  renderRestoreControls();
+}
+
 function mergeStates(remoteCandidate, localCandidate, baseCandidate) {
   const remote = normalizeState(remoteCandidate);
   const local = normalizeState(localCandidate);
@@ -1648,6 +1701,8 @@ function mergeStates(remoteCandidate, localCandidate, baseCandidate) {
     logs: mergeLogs(remote.logs, local.logs),
     drafts: mergeDrafts(remote.drafts, local.drafts, base?.drafts),
     settings: mergeSettings(remote.settings, local.settings, base?.settings),
+    syncHistory: mergeSyncHistory(remote.syncHistory, local.syncHistory),
+    redoHistory: mergeSyncHistory(remote.redoHistory, local.redoHistory),
   };
   return normalizeState(merged);
 }
@@ -1667,6 +1722,42 @@ function mergeProgram(remoteProgram, localProgram, baseProgram) {
 function mergeSettings(remoteSettings = {}, localSettings = {}, baseSettings = {}) {
   const unit = mergePrimitive(remoteSettings.unit, localSettings.unit, baseSettings.unit);
   return { ...remoteSettings, ...localSettings, unit: ["lb", "kg"].includes(unit) ? unit : "lb" };
+}
+
+function addSyncHistoryEntry(currentCandidate, previousCandidate, label) {
+  const next = normalizeState(currentCandidate);
+  if (!isRestorableStateDifferent(previousCandidate, next)) {
+    return next;
+  }
+  next.syncHistory = mergeSyncHistory(
+    [
+      {
+        id: createSnapshotId(),
+        label,
+        savedAt: new Date().toISOString(),
+        state: previousCandidate,
+      },
+    ],
+    next.syncHistory,
+  );
+  next.redoHistory = [];
+  return next;
+}
+
+function mergeSyncHistory(...historyLists) {
+  const bySnapshot = new Map();
+  historyLists.flat().forEach((entry) => {
+    const normalized = normalizeSyncHistoryEntry(entry);
+    if (!normalized) {
+      return;
+    }
+    const signature = getRestorableStateSignature(normalized.state);
+    const existing = bySnapshot.get(signature);
+    if (!existing || getTimestamp(normalized.savedAt) > getTimestamp(existing.savedAt)) {
+      bySnapshot.set(signature, normalized);
+    }
+  });
+  return [...bySnapshot.values()].sort((a, b) => getTimestamp(b.savedAt) - getTimestamp(a.savedAt)).slice(0, SYNC_HISTORY_LIMIT);
 }
 
 function mergeNotes(remoteNotes = {}, localNotes = {}, baseNotes = {}) {
@@ -1812,14 +1903,43 @@ function sameJson(first, second) {
   return JSON.stringify(first || null) === JSON.stringify(second || null);
 }
 
+function stripRestoreHistory(candidate) {
+  const snapshot = cloneState(candidate || {});
+  delete snapshot.syncHistory;
+  delete snapshot.redoHistory;
+  return snapshot;
+}
+
+function isRestorableStateDifferent(first, second) {
+  return getRestorableStateSignature(first) !== getRestorableStateSignature(second);
+}
+
+function getRestorableStateSignature(candidate) {
+  const snapshot = stripRestoreHistory(candidate);
+  delete snapshot.updatedAt;
+  return JSON.stringify(snapshot);
+}
+
 function newestIsoDate(...values) {
   const newest = values.reduce((max, value) => Math.max(max, getTimestamp(value)), 0);
   return newest ? new Date(newest).toISOString() : null;
 }
 
+function formatHistoryDate(value) {
+  const timestamp = getTimestamp(value);
+  return timestamp ? fullDate.format(new Date(timestamp)) : "unknown time";
+}
+
 function getTimestamp(value) {
   const timestamp = new Date(value || 0).getTime();
   return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function createSnapshotId() {
+  if (crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function saveStateSnapshot(label, snapshotState) {
@@ -1860,6 +1980,7 @@ function setDraftStatus(text) {
 }
 
 function openSettings() {
+  renderRestoreControls();
   elements.settingsPanel.hidden = false;
 }
 
@@ -1914,7 +2035,7 @@ async function resetData() {
   }
   state = createDefaultState();
   touchAndSave("Reset saved");
-  await syncNow(true, { forceReplace: true });
+  await syncNow(true, { forceReplace: true, skipHistory: true });
   render();
 }
 

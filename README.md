@@ -12,6 +12,8 @@ draft.
 When the same account is open on two devices, the app checks the cloud copy
 before saving and merges newer workout entries instead of blindly replacing the
 whole log. Conflict snapshots are kept locally as a last-resort safety copy.
+The last 5 cloud states before successful writes are also kept as restore
+points in Supabase, with redo available after a restore.
 
 ## Features
 
@@ -23,7 +25,7 @@ whole log. Conflict snapshots are kept locally as a last-resort safety copy.
 - Last workout display per exercise.
 - Editable day plans: reorder exercises, add an existing exercise, or create a new one.
 - Conflict-safe cloud sync for stale phone/laptop sessions.
-- Load last weights without copying old reps.
+- Restore previous sync and redo restore from Settings.
 - "Add load next time" cue when all sets hit the top of the rep range.
 - Export/import JSON backup.
 - Installable on iPhone from Share > Add to Home Screen.

@@ -87,7 +87,6 @@
           </div>
           <div class="session-actions">
             <button id="editDayButton" class="ghost-button" type="button" aria-controls="programPanel">Edit day</button>
-            <button id="useLastAllButton" class="secondary-button" type="button">Load weights</button>
             <button id="clearDraftButton" class="ghost-button" type="button">Clear</button>
           </div>
         </section>
@@ -151,6 +150,15 @@
           <h3>Cloud</h3>
           <p id="accountLabel">Signed in</p>
           <button id="syncNowButton" class="secondary-button" type="button">Sync now</button>
+        </div>
+
+        <div class="settings-block">
+          <h3>Restore point</h3>
+          <p id="restorePointLabel">No previous sync saved yet.</p>
+          <div class="button-row">
+            <button id="restoreSyncButton" class="secondary-button" type="button">Restore previous sync</button>
+            <button id="redoSyncButton" class="ghost-button" type="button">Redo restore</button>
+          </div>
         </div>
 
         <div class="settings-block">
