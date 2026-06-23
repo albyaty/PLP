@@ -121,7 +121,7 @@ const elements = {
   accountLabel: byId("accountLabel"),
   syncNowButton: byId("syncNowButton"),
   restorePointLabel: byId("restorePointLabel"),
-  restoreSyncButton: byId("restoreSyncButton"),
+  restorePointGrid: byId("restorePointGrid"),
   redoSyncButton: byId("redoSyncButton"),
   exportButton: byId("exportButton"),
   importInput: byId("importInput"),
@@ -174,6 +174,8 @@ const fullDate = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
 });
+const restoreDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+const restoreTime = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 
 boot();
 
@@ -289,7 +291,6 @@ function wireEvents() {
     render();
   });
   elements.syncNowButton.addEventListener("click", () => syncNow(true));
-  elements.restoreSyncButton.addEventListener("click", restorePreviousSync);
   elements.redoSyncButton.addEventListener("click", redoRestoredSync);
   elements.exportButton.addEventListener("click", exportBackup);
   elements.importInput.addEventListener("change", importBackup);
@@ -668,14 +669,34 @@ function renderRecent() {
 function renderRestoreControls() {
   const history = normalizeSyncHistory(state.syncHistory);
   const redoHistory = normalizeSyncHistory(state.redoHistory);
-  const latest = history[0];
   const redo = redoHistory[0];
+  const fragment = document.createDocumentFragment();
 
-  elements.restoreSyncButton.disabled = !latest;
+  for (let index = 0; index < SYNC_HISTORY_LIMIT; index += 1) {
+    fragment.append(renderRestorePointButton(history[index], index));
+  }
+  elements.restorePointGrid.replaceChildren(fragment);
   elements.redoSyncButton.disabled = !redo;
-  elements.restorePointLabel.textContent = latest
-    ? `Previous sync saved ${formatHistoryDate(latest.savedAt)}. Up to ${SYNC_HISTORY_LIMIT} restore points are kept.`
+  elements.restorePointLabel.textContent = history.length
+    ? "Choose a saved sync point if something gets overwritten."
     : "No previous sync saved yet.";
+}
+
+function renderRestorePointButton(entry, index) {
+  const button = createElement("button", "restore-point-button");
+  button.type = "button";
+  button.disabled = !entry;
+  button.append(createTextElement("strong", String(index + 1)));
+  if (entry) {
+    const formatted = formatRestorePointDate(entry.savedAt);
+    button.append(createTextElement("span", formatted.date), createTextElement("small", formatted.time));
+    button.title = `Restore sync point ${index + 1} from ${formatHistoryDate(entry.savedAt)}`;
+    button.addEventListener("click", () => restoreSyncAtIndex(index));
+  } else {
+    button.append(createTextElement("span", "Empty"), createTextElement("small", "--"));
+    button.title = `Restore sync point ${index + 1} is empty`;
+  }
+  return button;
 }
 
 function updateSet(dayKey, exercise, setIndex, patch) {
@@ -1733,12 +1754,13 @@ async function refreshFromCloudIfSafe() {
   render();
 }
 
-async function restorePreviousSync() {
+async function restoreSyncAtIndex(index) {
   await restoreFromHistoryStack({
     sourceKey: "syncHistory",
     targetKey: "redoHistory",
+    sourceIndex: index,
     emptyMessage: "No previous sync saved yet.",
-    confirmMessage: "Restore the previous cloud sync? Your current state moves to Redo.",
+    confirmMessage: `Restore sync point ${index + 1}? Your current state moves to Redo.`,
     targetLabel: "Before restore",
     status: "Previous sync restored",
   });
@@ -1748,6 +1770,7 @@ async function redoRestoredSync() {
   await restoreFromHistoryStack({
     sourceKey: "redoHistory",
     targetKey: "syncHistory",
+    sourceIndex: 0,
     emptyMessage: "No redo restore available.",
     confirmMessage: "Redo the restored state? Your current state moves back to restore history.",
     targetLabel: "Before redo",
@@ -1755,9 +1778,9 @@ async function redoRestoredSync() {
   });
 }
 
-async function restoreFromHistoryStack({ sourceKey, targetKey, emptyMessage, confirmMessage, targetLabel, status }) {
+async function restoreFromHistoryStack({ sourceKey, targetKey, sourceIndex = 0, emptyMessage, confirmMessage, targetLabel, status }) {
   const source = normalizeSyncHistory(state[sourceKey]);
-  const entry = source[0];
+  const entry = source[sourceIndex];
   if (!entry) {
     showToast(emptyMessage);
     renderRestoreControls();
@@ -1769,7 +1792,7 @@ async function restoreFromHistoryStack({ sourceKey, targetKey, emptyMessage, con
 
   const currentSnapshot = stripRestoreHistory(state);
   const restored = normalizeState(entry.state);
-  restored[sourceKey] = source.slice(1);
+  restored[sourceKey] = source.filter((_, index) => index !== sourceIndex);
   restored[targetKey] = mergeSyncHistory(
     [
       {
@@ -2033,6 +2056,18 @@ function newestIsoDate(...values) {
 function formatHistoryDate(value) {
   const timestamp = getTimestamp(value);
   return timestamp ? fullDate.format(new Date(timestamp)) : "unknown time";
+}
+
+function formatRestorePointDate(value) {
+  const timestamp = getTimestamp(value);
+  if (!timestamp) {
+    return { date: "Unknown", time: "--" };
+  }
+  const date = new Date(timestamp);
+  return {
+    date: restoreDate.format(date),
+    time: restoreTime.format(date),
+  };
 }
 
 function getTimestamp(value) {

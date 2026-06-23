@@ -8,6 +8,8 @@ The GitHub Pages site is just the app shell. Your workout state is stored in
 Supabase behind your login, so clearing Safari data or switching browsers does
 not erase the real copy. Browser storage is only used as a cache and offline
 draft.
+Each authenticated Supabase user has a separate `workout_state` row keyed by
+their own user id, so program edits and logs do not affect other users.
 
 When the same account is open on two devices, the app checks the cloud copy
 before saving and merges newer workout entries instead of blindly replacing the
@@ -26,7 +28,7 @@ points in Supabase, with redo available after a restore.
 - Editable day plans: reorder exercises, add an existing exercise, or create a new one.
 - Editable cycle-slot names, descriptions, and rest-day text.
 - Conflict-safe cloud sync for stale phone/laptop sessions.
-- Restore previous sync and redo restore from Settings.
+- Five selectable restore points and redo restore from Settings.
 - "Add load next time" cue when all sets hit the top of the rep range.
 - Export/import JSON backup.
 - Installable on iPhone from Share > Add to Home Screen.

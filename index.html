@@ -153,12 +153,10 @@
         </div>
 
         <div class="settings-block">
-          <h3>Restore point</h3>
-          <p id="restorePointLabel">No previous sync saved yet.</p>
-          <div class="button-row">
-            <button id="restoreSyncButton" class="secondary-button" type="button">Restore previous sync</button>
-            <button id="redoSyncButton" class="ghost-button" type="button">Redo restore</button>
-          </div>
+          <h3>Restore points</h3>
+          <p id="restorePointLabel">Choose a saved sync point if something gets overwritten.</p>
+          <div id="restorePointGrid" class="restore-point-grid" aria-label="Saved sync restore points"></div>
+          <button id="redoSyncButton" class="ghost-button" type="button">Redo restore</button>
         </div>
 
         <div class="settings-block">
