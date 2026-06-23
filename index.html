@@ -103,8 +103,8 @@
         </section>
 
         <section id="restView" class="rest-view" hidden>
-          <h2>Rest slot</h2>
-          <p>This slot is in the program rhythm. Use Next when you are ready for the next gym day.</p>
+          <h2 id="restTitle">Rest slot</h2>
+          <p id="restNote">This slot is in the program rhythm. Use Next when you are ready for the next gym day.</p>
         </section>
 
         <section id="exerciseList" class="exercise-list" aria-label="Exercises"></section>
@@ -198,7 +198,26 @@
           <button id="closeProgramButton" class="ghost-button" type="button">Close</button>
         </header>
 
-        <div class="settings-block">
+        <form id="dayDetailsForm" class="settings-block editor-form">
+          <h3>Day details</h3>
+          <div class="editor-grid">
+            <label class="settings-field wide-field">
+              Day name
+              <input id="programDayNameInput" type="text" autocomplete="off" required>
+            </label>
+            <label class="settings-field wide-field">
+              Small description
+              <input id="programDayDetailInput" type="text" autocomplete="off">
+            </label>
+            <label class="settings-field wide-field">
+              Workout note
+              <textarea id="programDayNoteInput" rows="3"></textarea>
+            </label>
+          </div>
+          <button class="primary-button" type="submit">Save details</button>
+        </form>
+
+        <div id="programExerciseBlock" class="settings-block">
           <div class="section-heading">
             <h3>Order</h3>
             <span id="programExerciseCount">0 exercises</span>
@@ -238,7 +257,7 @@
           <button class="primary-button" type="submit">Add exercise</button>
         </form>
 
-        <div class="settings-block danger-zone">
+        <div id="resetDayBlock" class="settings-block danger-zone">
           <h3>Day reset</h3>
           <button id="resetDayButton" class="danger-button" type="button">Reset this day</button>
         </div>

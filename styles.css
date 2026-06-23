@@ -164,6 +164,7 @@ code {
 .auth-form input,
 .settings-field select,
 .settings-field input,
+.settings-field textarea,
 .set-input,
 .note-field textarea {
   width: 100%;
@@ -183,6 +184,7 @@ code {
 .auth-form input:focus,
 .settings-field select:focus,
 .set-input:focus,
+.settings-field textarea:focus,
 .note-field textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(63, 125, 32, 0.15);
@@ -642,9 +644,16 @@ main {
 }
 
 .settings-field select,
-.settings-field input {
+.settings-field input,
+.settings-field textarea {
   min-height: 46px;
   padding: 0 11px;
+}
+
+.settings-field textarea {
+  min-height: 92px;
+  padding-top: 10px;
+  resize: vertical;
 }
 
 .settings-block {

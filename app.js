@@ -107,6 +107,8 @@ const elements = {
   editDayButton: byId("editDayButton"),
   clearDraftButton: byId("clearDraftButton"),
   restView: byId("restView"),
+  restTitle: byId("restTitle"),
+  restNote: byId("restNote"),
   exerciseList: byId("exerciseList"),
   recentList: byId("recentList"),
   syncStatus: byId("syncStatus"),
@@ -129,6 +131,11 @@ const elements = {
   programPanel: byId("programPanel"),
   closeProgramButton: byId("closeProgramButton"),
   programTitle: byId("programTitle"),
+  dayDetailsForm: byId("dayDetailsForm"),
+  programDayNameInput: byId("programDayNameInput"),
+  programDayDetailInput: byId("programDayDetailInput"),
+  programDayNoteInput: byId("programDayNoteInput"),
+  programExerciseBlock: byId("programExerciseBlock"),
   programExerciseCount: byId("programExerciseCount"),
   programExerciseList: byId("programExerciseList"),
   addExistingForm: byId("addExistingForm"),
@@ -138,6 +145,7 @@ const elements = {
   customExerciseSetsInput: byId("customExerciseSetsInput"),
   customExerciseRepsInput: byId("customExerciseRepsInput"),
   customExerciseFocusInput: byId("customExerciseFocusInput"),
+  resetDayBlock: byId("resetDayBlock"),
   resetDayButton: byId("resetDayButton"),
   toast: byId("toast"),
 };
@@ -271,6 +279,7 @@ function wireEvents() {
       closeProgramEditor();
     }
   });
+  elements.dayDetailsForm.addEventListener("submit", updateProgramDayDetails);
   elements.addExistingForm.addEventListener("submit", addExistingExerciseToDay);
   elements.customExerciseForm.addEventListener("submit", addCustomExerciseToDay);
   elements.resetDayButton.addEventListener("click", resetCurrentDayProgram);
@@ -431,7 +440,7 @@ function render() {
   const activeDisplay = getCycleSlotDisplay(active, state.currentCycleIndex);
 
   elements.cycleLabel.textContent = PROGRAM_NAME;
-  elements.dayTitle.textContent = active.dayKey === "rest" ? "Rest" : activeDisplay.label;
+  elements.dayTitle.textContent = activeDisplay.label;
   elements.unitSelect.value = state.settings.unit;
   elements.accountLabel.textContent = currentUser?.email || "Signed in";
 
@@ -440,21 +449,26 @@ function render() {
   renderRestoreControls();
 
   if (active.dayKey === "rest") {
-    elements.sessionKicker.textContent = "Program rhythm";
-    elements.sessionTitle.textContent = "Rest";
-    elements.sessionNote.textContent = "Recovery slot between the training days.";
+    elements.sessionKicker.textContent = activeDisplay.detail;
+    elements.sessionTitle.textContent = activeDisplay.label;
+    elements.sessionNote.textContent = getCycleSlotNote(active, day);
+    elements.restTitle.textContent = activeDisplay.label;
+    elements.restNote.textContent = getCycleSlotNote(active, day);
     elements.restView.hidden = false;
     elements.exerciseList.hidden = true;
-    elements.editDayButton.hidden = true;
+    elements.editDayButton.hidden = false;
     elements.clearDraftButton.hidden = true;
     elements.finishWorkoutButton.textContent = "Next gym day";
     elements.completionCount.textContent = "Rest slot";
+    if (!elements.programPanel.hidden) {
+      renderProgramEditor();
+    }
     return;
   }
 
-  elements.sessionKicker.textContent = day.kicker;
+  elements.sessionKicker.textContent = activeDisplay.detail;
   elements.sessionTitle.textContent = activeDisplay.label;
-  elements.sessionNote.textContent = day.note;
+  elements.sessionNote.textContent = getCycleSlotNote(active, day);
   elements.restView.hidden = true;
   elements.exerciseList.hidden = false;
   elements.editDayButton.hidden = false;
@@ -848,7 +862,7 @@ function getCycleSlotDisplay(slot, index) {
   }
   const syncInfo = getSyncedCycleInfo(slot.dayKey, index);
   const base = getDayDisplayBase(slot);
-  if (!syncInfo.isSynced) {
+  if (!syncInfo.isSynced || !shouldShowSyncedOccurrence(slot.dayKey)) {
     return base;
   }
   return {
@@ -858,10 +872,38 @@ function getCycleSlotDisplay(slot, index) {
 }
 
 function getDayDisplayBase(slot) {
-  if (slot.dayKey === "legs") {
-    return { label: "Abs & Legs", detail: cleanText(slot.detail) || "Abs first" };
+  const day = getProgram().days[slot.dayKey];
+  if (slot.dayKey === "rest") {
+    return {
+      label: cleanText(slot.label) || "Rest",
+      detail: Object.prototype.hasOwnProperty.call(slot || {}, "detail") ? cleanText(slot.detail) : "Recover",
+    };
   }
-  return { label: slot.label, detail: slot.detail };
+  return {
+    label: cleanText(slot.label) || cleanText(day?.title) || "Training",
+    detail: Object.prototype.hasOwnProperty.call(slot || {}, "detail") ? cleanText(slot.detail) : cleanText(day?.kicker),
+  };
+}
+
+function shouldShowSyncedOccurrence(dayKey) {
+  if (!SYNCED_CYCLE_DAY_KEYS.has(dayKey)) {
+    return false;
+  }
+  const labels = getProgram()
+    .cycle
+    .filter((slot) => slot.dayKey === dayKey)
+    .map((slot) => getDayDisplayBase(slot).label);
+  return labels.length > 1 && labels.every((label) => label === labels[0]);
+}
+
+function getCycleSlotNote(slot, day) {
+  if (Object.prototype.hasOwnProperty.call(slot || {}, "note")) {
+    return cleanText(slot?.note);
+  }
+  if (slot?.dayKey === "rest") {
+    return "This slot is in the program rhythm. Use Next when you are ready for the next gym day.";
+  }
+  return cleanText(day?.note) || "";
 }
 
 function getSyncedCycleInfo(dayKey, index = state.currentCycleIndex) {
@@ -893,10 +935,6 @@ function getProgram() {
 }
 
 function openProgramEditor() {
-  const active = getActiveCycleItem();
-  if (active.dayKey === "rest") {
-    return;
-  }
   editingExerciseIndex = null;
   renderProgramEditor();
   elements.programPanel.hidden = false;
@@ -909,13 +947,30 @@ function closeProgramEditor() {
 
 function renderProgramEditor() {
   const active = getActiveCycleItem();
+  const isRest = active.dayKey === "rest";
   const day = getProgram().days[active.dayKey];
-  if (!day) {
+  if (!isRest && !day) {
     closeProgramEditor();
     return;
   }
 
-  elements.programTitle.textContent = `Edit ${getDayDisplayBase(active).label}`;
+  const display = getDayDisplayBase(active);
+  elements.programTitle.textContent = `Edit ${display.label}`;
+  elements.programDayNameInput.value = display.label;
+  elements.programDayDetailInput.value = display.detail;
+  elements.programDayNoteInput.value = getCycleSlotNote(active, day);
+
+  elements.programExerciseBlock.hidden = isRest;
+  elements.addExistingForm.hidden = isRest;
+  elements.customExerciseForm.hidden = isRest;
+  elements.resetDayBlock.hidden = false;
+
+  if (isRest) {
+    elements.programExerciseCount.textContent = "Rest";
+    elements.programExerciseList.replaceChildren();
+    return;
+  }
+
   elements.programExerciseCount.textContent = getProgramExerciseCountLabel(active.dayKey, day.exercises.length);
   renderProgramExerciseList(active.dayKey, day);
   renderExistingExerciseOptions();
@@ -1074,6 +1129,30 @@ function updateProgramExercise(dayKey, index, patch) {
   render();
 }
 
+function updateProgramDayDetails(event) {
+  event.preventDefault();
+  const program = getProgram();
+  const slot = program.cycle[state.currentCycleIndex];
+  if (!slot) {
+    return;
+  }
+
+  const fallback = getDayDisplayBase(slot);
+  const nextLabel = cleanText(elements.programDayNameInput.value) || fallback.label;
+  const nextDetail = cleanText(elements.programDayDetailInput.value);
+  const nextNote = cleanText(elements.programDayNoteInput.value);
+  program.cycle[state.currentCycleIndex] = normalizeCycleSlot({
+    ...slot,
+    label: nextLabel,
+    detail: nextDetail,
+    note: nextNote,
+  });
+  editingExerciseIndex = null;
+  touchAndSave("Day details saved");
+  render();
+  showToast(`${nextLabel} saved.`);
+}
+
 function addExistingExerciseToDay(event) {
   event.preventDefault();
   const selectedId = elements.existingExerciseSelect.value;
@@ -1121,16 +1200,42 @@ function resetCurrentDayProgram() {
   const active = getActiveCycleItem();
   const day = getProgram().days[active.dayKey];
   const fallback = DEFAULT_PROGRAM.days[active.dayKey];
+  const fallbackSlot = getFallbackCycleSlot(active.dayKey, state.currentCycleIndex);
+  if (active.dayKey === "rest") {
+    if (!window.confirm(`Reset ${getDayDisplayBase(active).label} details?`)) {
+      return;
+    }
+    getProgram().cycle[state.currentCycleIndex] = normalizeCycleSlot({
+      ...fallbackSlot,
+      dayKey: "rest",
+    });
+    editingExerciseIndex = null;
+    touchAndSave("Day reset");
+    render();
+    return;
+  }
   if (!day || !fallback) {
     return;
   }
-  if (!window.confirm(`Reset ${day.title} exercise order to the original PLP day? Notes, history, and last weights stay saved.`)) {
+  if (!window.confirm(`Reset ${getDayDisplayBase(active).label} exercise order and day details to the original PLP day? Notes and history stay saved.`)) {
     return;
   }
   getProgram().days[active.dayKey] = cloneProgram({ days: { [active.dayKey]: fallback } }).days[active.dayKey];
+  getProgram().cycle[state.currentCycleIndex] = normalizeCycleSlot({
+    ...fallbackSlot,
+    dayKey: active.dayKey,
+  });
   editingExerciseIndex = null;
   touchAndSave("Day reset");
   render();
+}
+
+function getFallbackCycleSlot(dayKey, index) {
+  const fallbackByIndex = DEFAULT_PROGRAM.cycle[index];
+  if (fallbackByIndex?.dayKey === dayKey) {
+    return fallbackByIndex;
+  }
+  return DEFAULT_PROGRAM.cycle.find((slot) => slot.dayKey === dayKey) || { dayKey, label: dayKey, detail: "" };
 }
 
 function getCurrentProgramDay() {
@@ -1376,17 +1481,17 @@ function normalizeProgram(candidate) {
 
 function normalizeCycleSlot(slot) {
   const dayKey = cleanText(slot?.dayKey) || "rest";
-  if (dayKey === "legs") {
-    return {
-      dayKey,
-      label: "Abs & Legs",
-      detail: cleanText(slot?.detail) && cleanText(slot.detail) !== "Lean lower" ? cleanText(slot.detail) : "Abs first",
-    };
-  }
+  const fallback = getFallbackCycleSlot(dayKey, 0);
+  const label = cleanText(slot?.label) || cleanText(fallback.label) || (dayKey === "rest" ? "Rest" : "Training");
+  const hasDetail = Object.prototype.hasOwnProperty.call(slot || {}, "detail");
+  const detail = hasDetail ? cleanText(slot?.detail) : cleanText(fallback.detail);
+  const hasNote = Object.prototype.hasOwnProperty.call(slot || {}, "note");
+  const note = cleanText(slot?.note);
   return {
     dayKey,
-    label: cleanText(slot?.label) || "Rest",
-    detail: cleanText(slot?.detail) || "",
+    label,
+    detail,
+    ...(hasNote ? { note } : {}),
   };
 }
 

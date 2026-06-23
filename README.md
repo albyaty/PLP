@@ -24,6 +24,7 @@ points in Supabase, with redo available after a restore.
 - Sticky notes per exercise.
 - Last workout display per exercise.
 - Editable day plans: reorder exercises, add an existing exercise, or create a new one.
+- Editable cycle-slot names, descriptions, and rest-day text.
 - Conflict-safe cloud sync for stale phone/laptop sessions.
 - Restore previous sync and redo restore from Settings.
 - "Add load next time" cue when all sets hit the top of the rep range.
