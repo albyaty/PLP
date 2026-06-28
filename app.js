@@ -1,6 +1,6 @@
 const STORAGE_PREFIX = "plp-gym-log-cache-v1:";
 const PROGRAM_NAME = "PLP Arm Specialization";
-const PROGRAM_TEMPLATE_VERSION = 4;
+const PROGRAM_TEMPLATE_VERSION = 5;
 const SYNCED_CYCLE_DAY_KEYS = new Set(["push", "legs"]);
 const CONFIG = window.PLP_CONFIG || {};
 const allowSignUp = CONFIG.allowSignUp === true;
@@ -9,6 +9,74 @@ const SYNC_HISTORY_LIMIT = 5;
 const REMOTE_CONFLICT_SKEW_MS = 1000;
 
 const DEFAULT_PROGRAM = {
+  cycle: [
+    { dayKey: "push", label: "Push", detail: "Chest + tri" },
+    { dayKey: "legs", label: "Abs & Legs", detail: "Abs first" },
+    { dayKey: "pull-a", label: "Pull A", detail: "Fresh arms" },
+    { dayKey: "rest", label: "Rest", detail: "Recover" },
+    { dayKey: "push", label: "Push", detail: "Chest + tri" },
+    { dayKey: "legs", label: "Abs & Legs", detail: "Abs first" },
+    { dayKey: "pull-b", label: "Pull B", detail: "Back priority" },
+    { dayKey: "rest", label: "Rest", detail: "Recover" },
+  ],
+  days: {
+    "pull-a": {
+      title: "Pull A",
+      kicker: "Biceps/triceps priority",
+      note: "Arms first fresh: 7 biceps sets plus heavy close-grip press. Use straps on back work.",
+      exercises: [
+        { id: "incline-seated-db-curl", name: "Incline seated DB curl", sets: 4, reps: "8-10", focus: "Fresh biceps / lengthened bias" },
+        { id: "hammer-curl", name: "Hammer curl", sets: 3, reps: "10-12", focus: "Brachialis / brachioradialis" },
+        { id: "close-grip-smith-press", name: "Close-grip Smith press, tucked", sets: 3, reps: "6-10", focus: "Fresh triceps heavy" },
+        { id: "lat-pulldown", name: "Lat pulldown", sets: 3, reps: "8-12", focus: "Back / use straps" },
+        { id: "chest-supported-db-row", name: "Chest-supported DB row", sets: 3, reps: "10-12", focus: "Back / use straps" },
+        { id: "rear-delt", name: "Rear delt", sets: 2, reps: "15-20", focus: "Delt maintenance" },
+      ],
+    },
+    "pull-b": {
+      title: "Pull B",
+      kicker: "Back priority",
+      note: "Back gets your fresh, full effort. Triceps gets a fresh long-head dose, then biceps finishes with incline curls and hammer curls.",
+      exercises: [
+        { id: "lat-pulldown", name: "Lat pulldown", sets: 3, reps: "8-12", focus: "Back" },
+        { id: "smith-machine-row", name: "Smith machine row", sets: 3, reps: "8-12", focus: "Back" },
+        { id: "chest-supported-db-row", name: "Chest-supported DB row", sets: 3, reps: "10-12", focus: "Back" },
+        { id: "rear-delt", name: "Rear delt", sets: 2, reps: "15-20", focus: "Delt maintenance" },
+        { id: "overhead-db-extension", name: "Overhead DB extension", sets: 3, reps: "10-15", focus: "Fresh triceps / long head" },
+        { id: "incline-seated-db-curl", name: "Incline seated DB curl", sets: 3, reps: "10-12", focus: "Secondary biceps dose" },
+        { id: "hammer-curl", name: "Hammer curl", sets: 2, reps: "10-12", focus: "Brachialis top-up" },
+      ],
+    },
+    push: {
+      title: "Push",
+      kicker: "Chest + long-head triceps",
+      note: "Chest, priority long-head triceps, delt maintenance, then a light fresh biceps top-up.",
+      exercises: [
+        { id: "incline-smith-press", name: "Incline Smith press", sets: 3, reps: "6-10", focus: "Chest" },
+        { id: "chest-press-machine", name: "Chest press machine", sets: 3, reps: "8-12", focus: "Chest" },
+        { id: "pec-dec", name: "Pec dec", sets: 3, reps: "10-15", focus: "Chest" },
+        { id: "overhead-db-extension", name: "Overhead DB extension", sets: 3, reps: "10-15", focus: "Long-head triceps" },
+        { id: "lat-raise", name: "Lat raise", sets: 2, reps: "12-20", focus: "Delt maintenance" },
+        { id: "db-curl", name: "DB curl", sets: 2, reps: "10-15", focus: "Light fresh biceps dose" },
+      ],
+    },
+    legs: {
+      title: "Abs & Legs",
+      kicker: "Abs first, lean lower",
+      note: "Abs get the fresh slot. Keep crunches 1-2 reps shy of failure and rest before squatting.",
+      exercises: [
+        { id: "reverse-crunch", name: "Reverse crunch", sets: 3, reps: "12-15", focus: "Abs priority" },
+        { id: "weighted-crunch", name: "Weighted crunch", sets: 3, reps: "12-15", focus: "Abs" },
+        { id: "squat", name: "Squat", sets: 3, reps: "5-8", focus: "Compound" },
+        { id: "leg-press", name: "Leg press", sets: 3, reps: "10-15", focus: "Quads" },
+        { id: "rdl", name: "RDL", sets: 3, reps: "8-12", focus: "Hinge" },
+        { id: "calf-raise", name: "Calf raise", sets: 3, reps: "10-15", focus: "Optional" },
+      ],
+    },
+  },
+};
+
+const LEGACY_PROGRAM_TEMPLATE_V4 = {
   cycle: [
     { dayKey: "push", label: "Push", detail: "Chest + tri" },
     { dayKey: "legs", label: "Abs & Legs", detail: "Abs first" },
@@ -75,7 +143,6 @@ const DEFAULT_PROGRAM = {
     },
   },
 };
-
 const LEGACY_CYCLE_V2 = [
   { dayKey: "pull-a", label: "Pull A", detail: "Fresh arms" },
   { dayKey: "legs", label: "Legs", detail: "Lean lower" },
@@ -1359,7 +1426,7 @@ function hasSupabaseConfig(config) {
 
 function createDefaultState() {
   return {
-    version: 4,
+    version: 5,
     updatedAt: new Date().toISOString(),
     currentCycleIndex: 0,
     programRevision: PROGRAM_TEMPLATE_VERSION,
@@ -1378,7 +1445,7 @@ function normalizeState(candidate) {
   const base = createDefaultState();
   const source = candidate && typeof candidate === "object" ? candidate : {};
   const sourceProgramRevision = getProgramRevision(source);
-  const shouldUseUpdatedTemplate = sourceProgramRevision < PROGRAM_TEMPLATE_VERSION;
+  const shouldUseUpdatedTemplate = shouldApplyProgramTemplateUpdate(source, sourceProgramRevision);
   const merged = {
     ...base,
     ...source,
@@ -1435,6 +1502,36 @@ function isObject(value) {
 function getProgramRevision(source) {
   const candidate = source?.programRevision ?? source?.programTemplateVersion;
   return Number.isInteger(candidate) ? candidate : 0;
+}
+
+function shouldApplyProgramTemplateUpdate(source, sourceProgramRevision) {
+  if (sourceProgramRevision >= PROGRAM_TEMPLATE_VERSION) {
+    return false;
+  }
+  if (!source?.program || sourceProgramRevision === 0) {
+    return true;
+  }
+  if (sourceProgramRevision === 4) {
+    return isProgramStillOnTemplate(source.program, LEGACY_PROGRAM_TEMPLATE_V4);
+  }
+  return false;
+}
+
+function isProgramStillOnTemplate(candidate, template) {
+  return JSON.stringify(normalizeProgramForTemplateComparison(candidate)) === JSON.stringify(normalizeProgramForTemplateComparison(template));
+}
+
+function normalizeProgramForTemplateComparison(program) {
+  if (!isObject(program)) {
+    return null;
+  }
+  const normalized = cloneProgram(program);
+  Object.values(normalized.days || {}).forEach((day) => {
+    if (Array.isArray(day.exercises)) {
+      day.exercises = day.exercises.map((exercise) => ({ ...exercise }));
+    }
+  });
+  return normalized;
 }
 
 function remapCycleIndex(index, fromCycle, toCycle) {

@@ -2,7 +2,7 @@
 
 Phone-first workout tracker for the PLP arm specialization program.
 
-Current regimen: PLP Arm Specialization v2. Weekly shape: Push > Abs & Legs > Pull A > Rest > Push > Abs & Legs > Pull B > Rest.
+Current regimen: PLP Arm Specialization v2, updated from the June 2026 Markdown source. Weekly shape: Push > Abs & Legs > Pull A > Rest > Push > Abs & Legs > Pull B > Rest.
 
 The GitHub Pages site is just the app shell. Your workout state is stored in
 Supabase behind your login, so clearing Safari data or switching browsers does
@@ -20,7 +20,7 @@ points in Supabase, with redo available after a restore.
 ## Features
 
 - 8-slot PLP cycle with rest slots.
-- Updated v2 arm-specialization split with Push and Pull separated by Abs & Legs.
+- Updated v2 arm-specialization split: abs-first Legs, Pull A arm priority, and Pull B back priority with fresh triceps plus biceps top-up.
 - Repeated Push and Abs & Legs slots share the same exercise plan and in-progress entries.
 - Per-set weight, reps, and done tracking.
 - Sticky notes per exercise.
